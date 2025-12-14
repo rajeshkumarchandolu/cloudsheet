@@ -3,7 +3,6 @@ build/
 .gradle/
 gradle/
 gradle-wrapper.jar
-gradle-wrapper.properties
 
 # Android
 *.apk
