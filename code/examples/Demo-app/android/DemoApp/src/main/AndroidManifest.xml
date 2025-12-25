@@ -36,7 +36,7 @@
                 <data
                     android:scheme="msauth"
                     android:host="com.opencloudsheet.cloudsheetDemo"
-                    android:path="/VzSiQcXRmi2kyjzcA+mYLEtbGVs=" />
+                    android:path="/GTBu1vGn59kjUJkE9GXAcd8ANUE=" />
             </intent-filter>
         </activity>
 

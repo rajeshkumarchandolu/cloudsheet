@@ -1,110 +1,135 @@
 package com.opencloudsheet
 
 import android.app.Activity
-import android.content.Context
 import android.util.Log
-import com.microsoft.identity.client.IPublicClientApplication
-import com.microsoft.identity.client.ISingleAccountPublicClientApplication
-import com.microsoft.identity.client.PublicClientApplication
-import com.microsoft.identity.client.exception.MsalException
-import com.opencloudsheet.auth.MicrosoftOneDriveAuthenticator
-import com.opencloudsheet.config.MicrosoftOneDriveAuthConfiguration
-import kotlinx.coroutines.suspendCancellableCoroutine
-import org.json.JSONObject
-import java.io.File
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import com.opencloudsheet.model.workbook.IWorkBook
+import com.opencloudsheet.config.OneDriveConfiguration
+import com.opencloudsheet.factory.BaseCloudStorageFactory
+import com.opencloudsheet.factory.OneDriveFactory
+import com.opencloudsheet.metadata.MetadataManager.WorkBookEntry
+import com.opencloudsheet.model.userdetails.IUserDetails
+import com.opencloudsheet.model.worksheet.IWorksheetRow
+import com.opencloudsheet.utilities.OneDriveResponseHelper
+import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Main SDK entry point for CloudSheet.
+ */
 object OpenCloudSheetSdk {
     private const val TAG = "OpenCloudSheetSdk"
 
-    private val providerMap: MutableMap<Provider, IStorageProvider> = mutableMapOf()
+    private val factoryMap = ConcurrentHashMap<Provider, BaseCloudStorageFactory>()
 
-    suspend fun initializeMicrosoftOnedriveProvider(
-        context: Context,
+    /**
+     * Initialize OneDrive provider.
+     *
+     * @param context Android context
+     * @param activity Activity for authentication UI
+     * @param config OneDrive configuration (client ID, scopes, etc.)
+     * @param appName Application name for folder structure (cloudsheet/{appName}/data/)
+     */
+    suspend fun initializeOneDriveProvider(
         activity: Activity,
-        config: MicrosoftOneDriveAuthConfiguration
+        config: OneDriveConfiguration,
+        appName: String
     ) {
-        val configFile = createTempMsAuthConfigFile(config, context)
-        val msApplication = createSingleAccountPublicClientApplication(context, configFile)
-        // Create and register provider
-        val authenticator = MicrosoftOneDriveAuthenticator(config, msApplication)
-        authenticator.login(activity)
-        val storageProvider = MicrosoftOneDriveStorageProvider(authenticator)
-        providerMap[Provider.MicrosoftOneDrive] = storageProvider
-    }
-
-    fun getInitializedProviders(): Set<Provider> {
-        return providerMap.keys
-    }
-
-    fun getStorageProvider(provider: Provider): IStorageProvider? {
-        return providerMap[provider]
-    }
-
-    private suspend fun createSingleAccountPublicClientApplication(
-        context: Context,
-        configFile: File
-    ): ISingleAccountPublicClientApplication = suspendCancellableCoroutine { continuation ->
-        Log.d(
-            TAG,
-            "Creating single account public client application with config file: ${configFile.absolutePath}"
-        )
-        PublicClientApplication.createSingleAccountPublicClientApplication(
-            context,
-            configFile,
-            object :
-                IPublicClientApplication.ISingleAccountApplicationCreatedListener {
-                override fun onCreated(application: ISingleAccountPublicClientApplication?) {
-                    Log.d(TAG, "MSAL single account application created successfully")
-                    if (application == null)
-                        continuation.resumeWithException(IllegalStateException("MSAL single account application is null"))
-                    else
-                        continuation.resume(application)
-                }
-
-                override fun onError(exception: MsalException?) {
-                    Log.e(TAG, "Failed to create MSAL single account application", exception)
-                    continuation.resumeWithException(
-                        IllegalStateException(
-                            "Failed to create MSAL application",
-                            exception
-                        )
-                    )
-                }
-            })
-    }
-
-    private fun createTempMsAuthConfigFile(
-        config: MicrosoftOneDriveAuthConfiguration,
-        context: Context
-    ): File {
-        val configJsonString = """
-                    {
-                      "client_id" : "${config.clientId}",
-                      "redirect_uri" : "${config.redirectUri}",
-                      "account_mode" : "SINGLE",
-                      "authorization_user_agent" : "DEFAULT",
-                      "authorities": [
-                        {
-                          "type": "AAD",
-                          "audience": {
-                            "type": "AzureADandPersonalMicrosoftAccount",
-                            "tenant_id": "common"
-                          }
-                        }
-                      ]
-                    }
-                """.trimIndent()
-        val configJson = JSONObject(configJsonString)
-        val configFile = File(context.cacheDir, "msal_config.json")
         try {
-            configFile.writeText(configJson.toString())
+            Log.d(TAG, "Initializing OneDrive provider")
+
+            // 1. Create factory with config
+            val factory = OneDriveFactory(config, appName)
+
+            // 2. Initialize factory (handles auth + metadata manager setup)
+            factory.initialize(activity)
+
+            // 3. Store factory
+            factoryMap[Provider.OneDrive] = factory
+
+            Log.d(TAG, "OneDrive provider initialized successfully")
         } catch (e: Exception) {
-            throw IllegalStateException("Failed to create MSAL config file: ${e.message}", e)
+            Log.e(TAG, "Failed to initialize OneDrive provider", e)
+            throw e
         }
-        return configFile
     }
+
+    suspend fun getUserDetails(provider: Provider): IUserDetails? {
+        val factory = factoryMap[provider]
+            ?: throw IllegalStateException("Provider $provider not initialized")
+        return factory.getAuthenticator().getUserDetails()
+    }
+
+    /**
+     * Get list of all workbooks tracked in metadata.
+     */
+    suspend fun getWorkBooks(provider: Provider): List<IWorkBook<*>> {
+        val factory = factoryMap[provider]
+            ?: throw IllegalStateException("Provider $provider not initialized")
+
+        return factory.getMetadataManager().listWorkBooks()
+    }
+
+    /**
+     * Create a new workbook and track it in metadata.
+     */
+    suspend fun <T: IWorksheetRow> createWorkBook(
+        provider: Provider,
+        workbookName: String,
+        description: String,
+        clazz: Class<T>
+    ): IWorkBook<T> {
+        val factory = factoryMap[provider]
+            ?: throw IllegalStateException("Provider $provider not initialized")
+
+        val metadataManager = factory.getMetadataManager()
+        val createWorkBook = factory.getCreateWorkBook()
+
+        // Get data folder reference (cloudsheet/{appName}/data/)
+        val dataFolder = factory.getDataFolder()
+
+        // Create workbook file
+        val workbookFile = createWorkBook.createWorkbook(dataFolder, workbookName)
+        Log.d(TAG, "Created workbook file: ${workbookFile.getId()}")
+
+        val providerMetadataInfo = factory.getProviderMetadatInfo(workbookFile);
+        // Create WorkBookEntry
+        val workBookEntry = WorkBookEntry(
+            name = workbookName,
+            className = clazz.name,
+            provider = provider.name,
+            description = description,
+            providerMetadataInfo = providerMetadataInfo
+        )
+
+        // Create IWorkBook instance with metadata entry
+        val workbook = factory.createWorkBookInstance(clazz, workBookEntry)
+
+        // Add to metadata
+        metadataManager.addWorkBook(
+            name = workbookName,
+            className = clazz.name,
+            provider = provider,
+            description = description,
+            providerMetadataInfo = providerMetadataInfo
+        )
+        Log.d(TAG, "Added workbook to metadata: $workbookName")
+        return workbook
+    }
+
+    /**
+     * Delete a workbook from metadata tracking.
+     * Note: This only removes the metadata entry, not the actual workbook file.
+     */
+    suspend fun deleteWorkBook(provider: Provider, workbookEntry: WorkBookEntry) {
+        val factory = factoryMap[provider]
+            ?: throw IllegalStateException("Provider $provider not initialized")
+
+        factory.getMetadataManager().deleteWorkBook(workbookEntry)
+        Log.d(TAG, "Deleted workbook from metadata: ${workbookEntry.name}")
+    }
+
+    /**
+     * Get list of supported cloud storage providers.
+     */
+    fun supportedProviders(): List<Provider> = Provider.values().toList()
 
 }
-

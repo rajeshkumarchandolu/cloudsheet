@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.opencloudsheet.demo"
+    namespace = "com.opencloudsheet.cloudsheetDemo"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.opencloudsheet.demo"
+        applicationId = "com.opencloudsheet.cloudsheetDemo"
         minSdk = 31
         targetSdk = 36
         versionCode = 1
@@ -33,19 +33,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+
     buildFeatures {
         compose = true
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
-    implementation(libs.opencloudsheetsdk)
+    implementation(project(":cloudsheet-Android-sdk"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -54,10 +56,10 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.navigation.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.tooling)
 }
