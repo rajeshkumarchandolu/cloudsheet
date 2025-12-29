@@ -72,8 +72,7 @@ object OneDriveResponseHelper {
     fun <T : IWorksheetRow> toValueArray(obj: T): List<Any?> {
         val clazz = obj::class.java
         val metadataColumnCount = 3
-        val metadataFields = setOf("_rowId", "_createdAt", "_updatedAt", "_rowIndex")
-        val userFields = clazz.declaredFields.filter { !metadataFields.contains(it.name) }
+        val userFieldNames = obj.getTableColumnFieldsOrder()
 
         val columnMap = mutableMapOf<Int, Any?>(
             0 to obj.getUniqueRowId(),
@@ -81,14 +80,10 @@ object OneDriveResponseHelper {
             2 to obj.getUpdatedAt()
         )
 
-        userFields.forEach { field ->
+        userFieldNames.forEachIndexed { index, fieldName ->
+            val field = clazz.getDeclaredField(fieldName)
             field.isAccessible = true
-
-            val userColumnIndex = field.getAnnotation(ColumnIndex::class.java)?.value
-                ?: userFields.indexOf(field)
-
-            val actualColumnIndex = userColumnIndex + metadataColumnCount
-
+            val actualColumnIndex = index + metadataColumnCount
             columnMap[actualColumnIndex] = field.get(obj)
         }
 

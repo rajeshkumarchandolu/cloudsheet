@@ -8,6 +8,8 @@ package com.opencloudsheet.metadata
  * /users/{ownerId}/drive/items/{fileId}
  */
 data class OneDriveWorkBookMetadataInfo(
-    val ownerId: String,  // Microsoft user ID who owns the file
-    val fileId: String    // OneDrive file/item ID
+    val ownerId: String,
+    val fileId: String,
+    val iosClassName: String? = null,
+    val androidClassName: String? = null
 )

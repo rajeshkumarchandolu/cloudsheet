@@ -52,6 +52,46 @@ class WorkBooksViewModel : ViewModel() {
             }
         }
     }
+
+    fun updateWorkBook(workbook: IWorkBook<*>, newName: String, newDescription: String) {
+        viewModelScope.launch {
+            try {
+                val entry = workbook.getWorkBookEntry()
+                val updatedEntry = entry.copy(
+                    name = newName,
+                    description = newDescription
+                )
+
+                // Update in backend
+                OpenCloudSheetSdk.updateWorkBook(Provider.OneDrive, updatedEntry)
+
+                // Reload to reflect changes
+                loadWorkBooks()
+            } catch (e: Exception) {
+                _uiState.value = WorkBooksUiState.Error("Failed to update workbook: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteWorkBook(workbook: IWorkBook<*>) {
+        viewModelScope.launch {
+            try {
+                val currentState = _uiState.value
+                if (currentState is WorkBooksUiState.Success) {
+                    // Optimistically remove from UI
+                    val updatedList = currentState.workbooks.filter { it.getId() != workbook.getId() }
+                    _uiState.value = WorkBooksUiState.Success(updatedList)
+
+                    // Delete from backend
+                    OpenCloudSheetSdk.deleteWorkBook(Provider.OneDrive, workbook.getWorkBookEntry())
+                }
+            } catch (e: Exception) {
+                // Reload workbooks on error to restore state
+                _uiState.value = WorkBooksUiState.Error("Failed to delete workbook: ${e.message}")
+                loadWorkBooks()
+            }
+        }
+    }
 }
 
 sealed class WorkBooksUiState {

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4059DF752F0058C6002B3BD1 /* OpenCloudSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 4059DF742F0058C6002B3BD1 /* OpenCloudSheet */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		40E52B692EED7B110066DB79 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +33,22 @@
 		40E52B722EED7B110066DB79 /* CloudSheetDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CloudSheetDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4059DF782F005BDA002B3BD1 /* Exceptions for "CloudSheetDemo" folder in "CloudSheetDemo" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 40E52B5A2EED7B100066DB79 /* CloudSheetDemo */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		40E52B5D2EED7B100066DB79 /* CloudSheetDemo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4059DF782F005BDA002B3BD1 /* Exceptions for "CloudSheetDemo" folder in "CloudSheetDemo" target */,
+			);
 			path = CloudSheetDemo;
 			sourceTree = "<group>";
 		};
@@ -52,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4059DF752F0058C6002B3BD1 /* OpenCloudSheet in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,12 +90,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		40A4EC5C2EFFF4590082EC2A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		40E52B522EED7B100066DB79 = {
 			isa = PBXGroup;
 			children = (
 				40E52B5D2EED7B100066DB79 /* CloudSheetDemo */,
 				40E52B6B2EED7B110066DB79 /* CloudSheetDemoTests */,
 				40E52B752EED7B110066DB79 /* CloudSheetDemoUITests */,
+				40A4EC5C2EFFF4590082EC2A /* Frameworks */,
 				40E52B5C2EED7B100066DB79 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +138,7 @@
 			);
 			name = CloudSheetDemo;
 			packageProductDependencies = (
+				4059DF742F0058C6002B3BD1 /* OpenCloudSheet */,
 			);
 			productName = CloudSheetDemo;
 			productReference = 40E52B5B2EED7B100066DB79 /* CloudSheetDemo.app */;
@@ -196,7 +223,7 @@
 			mainGroup = 40E52B522EED7B100066DB79;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				40E52B852EED7B6E0066DB79 /* XCLocalSwiftPackageReference "../../../../sdk/ios/Cloudsheet-ios-sdk" */,
+				4059DF912F005E33002B3BD1 /* XCLocalSwiftPackageReference "../../../sdk/ios/OpenCloudSheet" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 40E52B5C2EED7B100066DB79 /* Products */;
@@ -398,22 +425,25 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = CloudSheetDemo/CloudSheetDemo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WP3N7HCGMX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CloudSheetDemo/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.opencloudsheet.CloudSheetDemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.opencloudsheet.cloudsheetDemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -430,22 +460,25 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = CloudSheetDemo/CloudSheetDemo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WP3N7HCGMX;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CloudSheetDemo/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.opencloudsheet.CloudSheetDemo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.opencloudsheet.cloudsheetDemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -583,11 +616,19 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		40E52B852EED7B6E0066DB79 /* XCLocalSwiftPackageReference "../../../../sdk/ios/Cloudsheet-ios-sdk" */ = {
+		4059DF912F005E33002B3BD1 /* XCLocalSwiftPackageReference "../../../sdk/ios/OpenCloudSheet" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../../../sdk/ios/Cloudsheet-ios-sdk";
+			relativePath = ../../../sdk/ios/OpenCloudSheet;
 		};
 /* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4059DF742F0058C6002B3BD1 /* OpenCloudSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4059DF912F005E33002B3BD1 /* XCLocalSwiftPackageReference "../../../sdk/ios/OpenCloudSheet" */;
+			productName = OpenCloudSheet;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 40E52B532EED7B100066DB79 /* Project object */;
 }

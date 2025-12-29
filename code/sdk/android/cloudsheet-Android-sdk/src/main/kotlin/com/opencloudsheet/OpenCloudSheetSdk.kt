@@ -9,6 +9,7 @@ import com.opencloudsheet.factory.OneDriveFactory
 import com.opencloudsheet.metadata.MetadataManager.WorkBookEntry
 import com.opencloudsheet.model.userdetails.IUserDetails
 import com.opencloudsheet.model.worksheet.IWorksheetRow
+import com.opencloudsheet.protocols.IPlatformTypeInfo
 import com.opencloudsheet.utilities.OneDriveResponseHelper
 import java.util.concurrent.ConcurrentHashMap
 
@@ -23,7 +24,6 @@ object OpenCloudSheetSdk {
     /**
      * Initialize OneDrive provider.
      *
-     * @param context Android context
      * @param activity Activity for authentication UI
      * @param config OneDrive configuration (client ID, scopes, etc.)
      * @param appName Application name for folder structure (cloudsheet/{appName}/data/)
@@ -35,16 +35,9 @@ object OpenCloudSheetSdk {
     ) {
         try {
             Log.d(TAG, "Initializing OneDrive provider")
-
-            // 1. Create factory with config
             val factory = OneDriveFactory(config, appName)
-
-            // 2. Initialize factory (handles auth + metadata manager setup)
             factory.initialize(activity)
-
-            // 3. Store factory
             factoryMap[Provider.OneDrive] = factory
-
             Log.d(TAG, "OneDrive provider initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize OneDrive provider", e)
@@ -82,31 +75,27 @@ object OpenCloudSheetSdk {
 
         val metadataManager = factory.getMetadataManager()
         val createWorkBook = factory.getCreateWorkBook()
-
-        // Get data folder reference (cloudsheet/{appName}/data/)
         val dataFolder = factory.getDataFolder()
-
-        // Create workbook file
         val workbookFile = createWorkBook.createWorkbook(dataFolder, workbookName)
         Log.d(TAG, "Created workbook file: ${workbookFile.getId()}")
 
-        val providerMetadataInfo = factory.getProviderMetadatInfo(workbookFile);
-        // Create WorkBookEntry
+        val emptyJson = "{}"
+        val tempInstance = OneDriveResponseHelper.fromJson(emptyJson, clazz)
+
+        val providerMetadataInfo = factory.getProviderMetadataInfo(
+            workbookFile = workbookFile,
+            iosClassName = tempInstance.getIosClassName(),
+            androidClassName = tempInstance.getAndroidClassName()
+        )
         val workBookEntry = WorkBookEntry(
             name = workbookName,
-            className = clazz.name,
             provider = provider.name,
             description = description,
             providerMetadataInfo = providerMetadataInfo
         )
-
-        // Create IWorkBook instance with metadata entry
         val workbook = factory.createWorkBookInstance(clazz, workBookEntry)
-
-        // Add to metadata
         metadataManager.addWorkBook(
             name = workbookName,
-            className = clazz.name,
             provider = provider,
             description = description,
             providerMetadataInfo = providerMetadataInfo
@@ -116,20 +105,31 @@ object OpenCloudSheetSdk {
     }
 
     /**
-     * Delete a workbook from metadata tracking.
-     * Note: This only removes the metadata entry, not the actual workbook file.
+     * Update a workbook's metadata (name and description).
+     */
+    suspend fun updateWorkBook(provider: Provider, workbookEntry: WorkBookEntry) {
+        val factory = factoryMap[provider]
+            ?: throw IllegalStateException("Provider $provider not initialized")
+
+        factory.getMetadataManager().updateWorkBook(workbookEntry)
+        Log.d(TAG, "Updated workbook metadata: ${workbookEntry.name}")
+    }
+
+    /**
+     * Delete a workbook completely - removes both the metadata entry and the actual file from cloud storage.
      */
     suspend fun deleteWorkBook(provider: Provider, workbookEntry: WorkBookEntry) {
         val factory = factoryMap[provider]
             ?: throw IllegalStateException("Provider $provider not initialized")
 
-        factory.getMetadataManager().deleteWorkBook(workbookEntry)
-        Log.d(TAG, "Deleted workbook from metadata: ${workbookEntry.name}")
+        // Factory handles provider-specific deletion logic
+        factory.deleteWorkBook(workbookEntry)
+        Log.d(TAG, "Deleted workbook: ${workbookEntry.name}")
     }
 
     /**
      * Get list of supported cloud storage providers.
      */
-    fun supportedProviders(): List<Provider> = Provider.values().toList()
+    fun supportedProviders(): List<Provider> = Provider.entries
 
 }

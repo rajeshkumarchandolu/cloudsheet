@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opencloudsheet.demo.model.Expense
+import com.opencloudsheet.demo.ui.components.SwipeToDeleteItem
 import com.opencloudsheet.demo.viewmodel.SheetsUiState
 import com.opencloudsheet.demo.viewmodel.SheetsViewModel
 import com.opencloudsheet.model.worksheet.IWorkSheet
@@ -26,12 +27,14 @@ fun ListSheetsScreen(
     workbookId: String,
     workbookName: String,
     onNavigateBack: () -> Unit,
+    onSheetSelected: (String, String) -> Unit,
     viewModel: SheetsViewModel = viewModel(
         factory = SheetsViewModelFactory(workbookId, workbookName)
     )
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var sheetToRename by remember { mutableStateOf<IWorkSheet<Expense>?>(null) }
 
     Scaffold(
         topBar = {
@@ -80,19 +83,12 @@ fun ListSheetsScreen(
                         SheetsList(
                             sheets = state.sheets,
                             onSheetClick = { sheet ->
-                                viewModel.selectSheet(sheet)
-                                // TODO: Navigate to sheet details/expenses view
-                            }
+                                onSheetSelected(sheet.getId(), sheet.getName())
+                            },
+                            onSheetRename = { sheetToRename = it },
+                            onSheetDelete = { viewModel.deleteSheet(it) }
                         )
                     }
-                }
-
-                is SheetsUiState.SheetSelected -> {
-                    // TODO: Show sheet details with expenses
-                    Text(
-                        text = "Sheet Selected: ${state.sheet.getName()}",
-                        modifier = Modifier.align(Alignment.Center)
-                    )
                 }
 
                 is SheetsUiState.Error -> {
@@ -127,24 +123,43 @@ fun ListSheetsScreen(
                 }
             )
         }
+
+        sheetToRename?.let { sheet ->
+            RenameSheetDialog(
+                sheet = sheet,
+                onDismiss = { sheetToRename = null },
+                onRename = { newName ->
+                    viewModel.renameSheet(sheet, newName)
+                    sheetToRename = null
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun SheetsList(
     sheets: List<IWorkSheet<Expense>>,
-    onSheetClick: (IWorkSheet<Expense>) -> Unit
+    onSheetClick: (IWorkSheet<Expense>) -> Unit,
+    onSheetRename: (IWorkSheet<Expense>) -> Unit,
+    onSheetDelete: (IWorkSheet<Expense>) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(sheets) { sheet ->
-            SheetCard(
-                sheet = sheet,
-                onClick = { onSheetClick(sheet) }
-            )
+        items(sheets, key = { it.getId() }) { sheet ->
+            SwipeToDeleteItem(
+                onDelete = { onSheetDelete(sheet) },
+                onEdit = { onSheetRename(sheet) },
+                showEdit = true
+            ) {
+                SheetCard(
+                    sheet = sheet,
+                    onClick = { onSheetClick(sheet) }
+                )
+            }
         }
     }
 }
@@ -208,6 +223,46 @@ fun EmptySheetsView(
             Text("Create Sheet")
         }
     }
+}
+
+@Composable
+fun RenameSheetDialog(
+    sheet: IWorkSheet<Expense>,
+    onDismiss: () -> Unit,
+    onRename: (newName: String) -> Unit
+) {
+    var name by remember { mutableStateOf(sheet.getName()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename Sheet") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Sheet Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onRename(name.trim())
+                    }
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Rename")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

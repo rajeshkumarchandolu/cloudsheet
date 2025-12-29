@@ -89,9 +89,51 @@ class SheetsViewModel(
         }
     }
 
-    fun selectSheet(sheet: IWorkSheet<Expense>) {
-        _uiState.value = SheetsUiState.SheetSelected(sheet)
+    fun renameSheet(sheet: IWorkSheet<Expense>, newName: String) {
+        viewModelScope.launch {
+            try {
+                if (workbook == null) {
+                    _uiState.value = SheetsUiState.Error("Workbook not initialized")
+                    return@launch
+                }
+
+                workbook!!.renameWorksheet(sheet, newName)
+
+                // Reload sheets
+                loadSheets()
+            } catch (e: Exception) {
+                _uiState.value = SheetsUiState.Error("Failed to rename sheet: ${e.message}")
+            }
+        }
     }
+
+    fun deleteSheet(sheet: IWorkSheet<Expense>) {
+        viewModelScope.launch {
+            try {
+                if (workbook == null) {
+                    _uiState.value = SheetsUiState.Error("Workbook not initialized")
+                    return@launch
+                }
+
+                val currentState = _uiState.value
+                if (currentState is SheetsUiState.Success) {
+                    // Optimistically remove from UI
+                    val updatedList = currentState.sheets.filter { it.getId() != sheet.getId() }
+                    _uiState.value = SheetsUiState.Success(
+                        workbookName = currentState.workbookName,
+                        sheets = updatedList
+                    )
+
+                    // Delete from backend
+                    workbook!!.deleteWorkSheet(sheet)
+                }
+            } catch (e: Exception) {
+                _uiState.value = SheetsUiState.Error("Failed to delete sheet: ${e.message}")
+                loadSheets()
+            }
+        }
+    }
+
 }
 
 sealed class SheetsUiState {
@@ -101,6 +143,5 @@ sealed class SheetsUiState {
         val workbookName: String,
         val sheets: List<IWorkSheet<Expense>>
     ) : SheetsUiState()
-    data class SheetSelected(val sheet: IWorkSheet<Expense>) : SheetsUiState()
     data class Error(val message: String) : SheetsUiState()
 }

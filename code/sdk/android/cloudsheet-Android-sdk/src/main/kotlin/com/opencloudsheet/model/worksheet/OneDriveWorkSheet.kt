@@ -15,11 +15,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 
+/**
+ * OneDrive implementation of worksheet operations using Microsoft Graph API.
+ * Handles Excel table operations for CRUD on worksheet data.
+ *
+ * @see <a href="https://learn.microsoft.com/en-us/graph/api/resources/workbooktable?view=graph-rest-1.0">Microsoft Graph: Workbook Table</a>
+ */
 class OneDriveWorkSheet<T : IWorksheetRow>(
     private val metadataInfo: OneDriveWorkBookMetadataInfo,
     private val workSheetData: WorkSheetData,
     private val clazz: Class<T>,
-    private val authenticator: IAuthenticator
+    private val authenticator: IAuthenticator,
+    private val oneDriveClient: OneDriveClient
 ) : IWorkSheet<T> {
 
     companion object {
@@ -141,16 +148,13 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
             return
         }
 
-        // Validate @ColumnIndex annotations before any table operations
         OneDriveWorksheetRowHelpers.validateColumnIndexAnnotations(clazz)
 
         val tableExists = checkTableExists()
 
         if (!tableExists) {
-            // Creates table with all columns and renames them to proper names
             createTable()
         } else {
-            // Table exists - check for schema evolution (new columns added to model)
             val excelColumns = fetchTableColumns()
             val missingColumns = OneDriveWorksheetRowHelpers.getMissingColumns(clazz, excelColumns)
 
@@ -160,9 +164,10 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
                     createColumn(columnName, index)
                 }
             }
+
+            fixDefaultColumnNamesIfNeeded()
         }
 
-        // Validate that columns match expected schema
         val excelColumns = fetchTableColumns()
         val expectedColumns = OneDriveWorksheetRowHelpers.buildColumnMapping(clazz)
         OneDriveWorksheetRowHelpers.validateColumnMapping(expectedColumns, excelColumns)
@@ -171,47 +176,45 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
         isInitialized = true
     }
 
-    private suspend fun checkTableExists(): Boolean {
+    private suspend fun checkTableExists(): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(getTablesListUrl())
             .addHeader("Authorization", "Bearer ${getAuthToken()}")
             .get()
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
+        oneDriveClient.instance.newCall(request).execute().use { response ->
+            when {
+                !response.isSuccessful -> false
+                else -> {
+                    val responseBody = response.body.string()
+                    val json = JSONObject(responseBody)
+                    val tablesArray = json.optJSONArray("value")
+
+                    if (tablesArray != null && tablesArray.length() > 0) {
+                        val firstTable = tablesArray.getJSONObject(0)
+                        if (!firstTable.has("id")) {
+                            throw IllegalStateException("Table exists in worksheet but API response missing 'id' field. Cannot proceed without table ID.")
+                        }
+                        tableId = firstTable.getString("id")
+                        Log.d(TAG, "Found existing table with ID: $tableId")
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
         }
-
-        if (!response.isSuccessful) {
-            return false
-        }
-
-        val responseBody = response.body.string()
-        val json = JSONObject(responseBody)
-        val tablesArray = json.optJSONArray("value")
-
-        // Check if any table exists (we'll use the first one)
-        if (tablesArray != null && tablesArray.length() > 0) {
-            val firstTable = tablesArray.getJSONObject(0)
-            tableId = firstTable.getString("id")
-            Log.d(TAG, "Found existing table with ID: $tableId")
-            return true
-        }
-
-        return false
     }
 
     private suspend fun createTable() {
         Log.d(TAG, "Creating table")
 
-        // Calculate required columns from class schema
         val columnMapping = OneDriveWorksheetRowHelpers.buildColumnMapping(clazz)
         val maxColumnIndex = columnMapping.keys.maxOrNull() ?: 0
         val endColumn = getExcelColumnName(maxColumnIndex)
 
-        // Create table with full range (A1:EndColumn1)
-        // Graph API will auto-create Column1, Column2, ..., ColumnN
-        val tableAddress = "${workSheetData.name}!A1:${endColumn}1"
+        val tableAddress = "'${workSheetData.name}'!A1:${endColumn}1"
 
         Log.d(TAG, "Creating table with address: $tableAddress (${maxColumnIndex + 1} columns)")
 
@@ -229,24 +232,22 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
             .post(tableRequestBody)
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
-        }
+        tableId = withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body.string()
+                    Log.e(TAG, "Failed to create table: ${response.code} - ${response.message} - $errorBody")
+                    throw Exception("Failed to create table: HTTP ${response.code}")
+                }
 
-        if (!response.isSuccessful) {
-            val errorBody = response.body.string()
-            Log.e(TAG, "Failed to create table: ${response.code} - ${response.message} - $errorBody")
-            throw Exception("Failed to create table: HTTP ${response.code}")
+                val responseBody = response.body.string()
+                val json = JSONObject(responseBody)
+                json.getString("id")
+            }
         }
-
-        // Parse response to get the table ID
-        val responseBody = response.body.string()
-        val json = JSONObject(responseBody)
-        tableId = json.getString("id")
 
         Log.d(TAG, "Table created successfully with ID: $tableId")
 
-        // Rename all auto-generated columns (Column1, Column2, ...) to our desired names
         columnMapping.forEach { (index, columnName) ->
             renameColumn(index, columnName)
         }
@@ -284,14 +285,14 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
             .patch(requestBody)
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
-        }
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body.string()
-            Log.e(TAG, "Failed to rename column: ${response.code} - ${response.message} - $errorBody")
-            throw Exception("Failed to rename column at index $columnIndex: HTTP ${response.code}")
+        withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body.string()
+                    Log.e(TAG, "Failed to rename column: ${response.code} - ${response.message} - $errorBody")
+                    throw Exception("Failed to rename column at index $columnIndex: HTTP ${response.code}")
+                }
+            }
         }
 
         Log.d(TAG, "Column at index $columnIndex renamed to '$newName' successfully")
@@ -306,29 +307,29 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
             .get()
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
+        return withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body.string()
+                    Log.e(TAG, "Failed to fetch columns: ${response.code} - ${response.message} - $errorBody")
+                    throw Exception("Failed to fetch columns: HTTP ${response.code}")
+                }
+
+                val responseBody = response.body.string()
+                val json = JSONObject(responseBody)
+                val columnsArray = json.getJSONArray("value")
+
+                val columns = mutableMapOf<Int, String>()
+                for (i in 0 until columnsArray.length()) {
+                    val columnObj = columnsArray.getJSONObject(i)
+                    val index = columnObj.getInt("index")
+                    val name = columnObj.getString("name")
+                    columns[index] = name
+                }
+
+                columns
+            }
         }
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body.string()
-            Log.e(TAG, "Failed to fetch columns: ${response.code} - ${response.message} - $errorBody")
-            throw Exception("Failed to fetch columns: HTTP ${response.code}")
-        }
-
-        val responseBody = response.body.string()
-        val json = JSONObject(responseBody)
-        val columnsArray = json.getJSONArray("value")
-
-        val columns = mutableMapOf<Int, String>()
-        for (i in 0 until columnsArray.length()) {
-            val columnObj = columnsArray.getJSONObject(i)
-            val index = columnObj.getInt("index")
-            val name = columnObj.getString("name")
-            columns[index] = name
-        }
-
-        return columns
     }
 
     private suspend fun createColumn(columnName: String, index: Int) {
@@ -348,17 +349,44 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
             .post(requestBody)
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
-        }
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body.string()
-            Log.e(TAG, "Failed to create column: ${response.code} - ${response.message} - $errorBody")
-            throw Exception("Failed to create column '$columnName': HTTP ${response.code}")
+        withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body.string()
+                    Log.e(TAG, "Failed to create column: ${response.code} - ${response.message} - $errorBody")
+                    throw Exception("Failed to create column '$columnName': HTTP ${response.code}")
+                }
+            }
         }
 
         Log.d(TAG, "Column '$columnName' created successfully")
+    }
+
+    private suspend fun fixDefaultColumnNamesIfNeeded() {
+        val excelColumns = fetchTableColumns()
+        val expectedColumns = OneDriveWorksheetRowHelpers.buildColumnMapping(clazz)
+
+        val columnsToRename = mutableMapOf<Int, String>()
+
+        expectedColumns.forEach { (index, expectedName) ->
+            val currentName = excelColumns[index]
+            val defaultName = "Column${index + 1}"
+
+            if (currentName == defaultName && currentName != expectedName) {
+                columnsToRename[index] = expectedName
+            }
+        }
+
+        if (columnsToRename.isNotEmpty()) {
+            Log.d(TAG, "Detected ${columnsToRename.size} columns with default names, renaming them")
+            columnsToRename.forEach { (index, newName) ->
+                try {
+                    renameColumn(index, newName)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to rename column at index $index to '$newName'", e)
+                }
+            }
+        }
     }
 
     private fun getTablesListUrl(): String {
@@ -397,18 +425,19 @@ class OneDriveWorkSheet<T : IWorksheetRow>(
         return "${getTableUrl()}/rows"
     }
 
-    private suspend fun executeRequest(request: Request): String {
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
+    private suspend fun executeRequest(request: Request): String = withContext(Dispatchers.IO) {
+        oneDriveClient.instance.newCall(request).execute().use { response ->
+            parseResponse(response)
         }
+    }
 
+    private fun parseResponse(response: okhttp3.Response): String {
+        val body = response.body.string()
         if (!response.isSuccessful) {
-            val errorBody = response.body.string()
-            Log.e(TAG, "Request failed: ${response.code} - ${response.message} - $errorBody")
+            Log.e(TAG, "Request failed: ${response.code} - ${response.message} - $body")
             throw Exception("Request failed: HTTP ${response.code}")
         }
-
-        return response.body.string()
+        return body
     }
 
 }

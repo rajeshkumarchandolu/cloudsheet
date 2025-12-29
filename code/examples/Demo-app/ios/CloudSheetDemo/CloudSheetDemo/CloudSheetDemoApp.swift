@@ -6,12 +6,19 @@
 //
 
 import SwiftUI
+import OpenCloudSheet
 
 @main
 struct CloudSheetDemoApp: App {
+    init() {
+        Task {
+            await OpenCloudSheetSdk.registerModels([Expense.self])
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            LoginView()
         }
     }
 }

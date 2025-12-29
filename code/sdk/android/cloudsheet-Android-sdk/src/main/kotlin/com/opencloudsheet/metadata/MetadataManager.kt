@@ -5,6 +5,7 @@ import com.opencloudsheet.Provider
 import com.opencloudsheet.model.workbook.IWorkBook
 import com.opencloudsheet.model.worksheet.IWorkSheet
 import com.opencloudsheet.model.worksheet.IWorksheetRow
+import com.opencloudsheet.utilities.OneDriveResponseHelper
 
 /**
  * Manager for the Metadata.xlsx workbook that tracks all user workbooks.
@@ -36,11 +37,13 @@ class MetadataManager(
      */
     data class WorkBookEntry(
         val name: String,                   // Workbook name
-        val className: String,              // Full class name (e.g., "com.example.Employee")
         val provider: String,               // Provider name (e.g., "OneDrive", "GoogleDrive")
         val description: String,            // User description
         val providerMetadataInfo: String    // JSON stringified provider-specific metadata (ownerId, fileId, etc.)
-    ) : IWorksheetRow()
+    ) : IWorksheetRow() {
+        override fun getIosClassName() = "OpenCloudSheet.WorkBookEntry"
+        override fun getTableColumnFieldsOrder() = listOf("description", "name", "provider", "providerMetadataInfo")
+    }
 
     suspend fun initialize() {
         val existingSheets = workbook.getWorkSheets()
@@ -50,20 +53,18 @@ class MetadataManager(
             workBooksSheet = existingWorkBooksSheet
             return
         }
-        Log.i(TAG, "creating the $WORKBOOKS_SHEET_NAME sheet in the ${workbook?.getName()}")
+        Log.i(TAG, "creating the $WORKBOOKS_SHEET_NAME sheet in the ${workbook.getName()}")
         workBooksSheet = workbook.createWorkSheet(WORKBOOKS_SHEET_NAME)
     }
 
     suspend fun addWorkBook(
         name: String,
-        className: String,
         provider: Provider,
         description: String,
         providerMetadataInfo: String
     ) {
         val entry = WorkBookEntry(
             name = name,
-            className = className,
             provider = provider.name,
             description = description,
             providerMetadataInfo = providerMetadataInfo
@@ -72,31 +73,41 @@ class MetadataManager(
         workBooksSheet!!.create(entry)
     }
 
-    /**
-     * List all tracked workbooks as IWorkBook instances.
-     *
-     * @return List of workbook instances
-     */
     suspend fun listWorkBooks(): List<IWorkBook<*>> {
         val entries = workBooksSheet!!.get()
 
-        return entries.mapNotNull { entry ->
-            try {
-                val clazz = Class.forName(entry.className) as Class<out IWorksheetRow>
-                createWorkBookInstance(clazz, entry)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load workbook: ${entry.name}", e)
-                null
-            }
+        return entries.map { entry ->
+            createWorkBookInstance(resolveClass(entry), entry)
         }
     }
 
-    /**
-     * Delete a workbook from metadata tracking.
-     * Note: This only removes the metadata entry, not the actual workbook file.
-     */
+    private fun resolveClass(entry: WorkBookEntry): Class<out IWorksheetRow> {
+        val metadataInfo = parseProviderMetadata(entry.providerMetadataInfo)
+
+        metadataInfo?.androidClassName?.let { androidClassName ->
+            try {
+                return Class.forName(androidClassName) as Class<out IWorksheetRow>
+            } catch (_: ClassNotFoundException) {
+                Log.w(TAG, "Class not found: $androidClassName")
+                throw IllegalArgumentException("Class not found: $androidClassName")
+            }
+        }
+        throw IllegalArgumentException("Invalid provider metadata: $entry")
+    }
+
+    private fun parseProviderMetadata(json: String): OneDriveWorkBookMetadataInfo? {
+        return try {
+            OneDriveResponseHelper.fromJson(json, OneDriveWorkBookMetadataInfo::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun updateWorkBook(workbookEntry: WorkBookEntry) {
+        workBooksSheet!!.update(workbookEntry)
+    }
+
     suspend fun deleteWorkBook(workbookEntry: WorkBookEntry) {
-        // Use IWorkSheet.delete() - standard CRUD
         workBooksSheet!!.delete(workbookEntry)
     }
 

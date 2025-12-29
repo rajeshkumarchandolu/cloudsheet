@@ -1,5 +1,7 @@
 package com.opencloudsheet.model.worksheet
 
+import com.opencloudsheet.protocols.IPlatformTypeInfo
+
 /**
  * Abstract base class for all data classes used with IWorkSheet.
  *
@@ -12,21 +14,30 @@ package com.opencloudsheet.model.worksheet
  *
  * **Field Declaration Order:**
  * By default, fields in your data class should match the column order in the worksheet.
- * Metadata columns (_rowId, _createdAt, _updatedAt) are automatically added as the first 3 columns.
+ * Metadata columns (rowId, createdAt, updatedAt) are automatically added as the first 3 columns.
  * Use @ColumnIndex annotation if you need custom column mapping for your data fields.
+ *
+ * **Cross-Platform Support:**
+ * Implementing classes must provide companion object with IPlatformTypeInfo to enable
+ * cross-platform workbook compatibility between iOS and Android.
  *
  * Example usage:
  * ```
  * data class Employee(
  *     val name: String,
  *     val department: String
- * ) : IWorksheetRow()
+ * ) : IWorksheetRow() {
+ *     companion object : IPlatformTypeInfo {
+ *         override fun getIosClassName() = "MyApp.Employee"
+ *         override fun getAndroidClassName() = Employee::class.java.name
+ *     }
+ * }
  * ```
  *
  * Worksheet columns will be:
- * [_rowId, _createdAt, _updatedAt, name, department]
+ * [rowId, createdAt, updatedAt, name, department]
  */
-abstract class IWorksheetRow {
+abstract class IWorksheetRow: IPlatformTypeInfo {
     private var _rowId: String = ""
     private var _createdAt: Long = 0L
     private var _updatedAt: Long = 0L
@@ -51,4 +62,6 @@ abstract class IWorksheetRow {
     fun setRowIndex(index: Int) {
         _rowIndex = index
     }
+
+    abstract fun getTableColumnFieldsOrder(): List<String>
 }

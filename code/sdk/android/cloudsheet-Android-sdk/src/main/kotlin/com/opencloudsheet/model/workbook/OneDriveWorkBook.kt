@@ -29,12 +29,15 @@ import org.json.JSONObject
  * - Create worksheet (with automatic schema generation via reflection)
  * - Delete worksheet
  * - Rename worksheet
+ *
+ * @see <a href="https://learn.microsoft.com/en-us/graph/api/resources/workbookworksheet?view=graph-rest-1.0">Microsoft Graph: Worksheet</a>
  */
 class OneDriveWorkBook<T : IWorksheetRow>(
     private val metadataInfo: OneDriveWorkBookMetadataInfo,
     private val clazz: Class<T>,
     private val authenticator: IAuthenticator,
-    private val workBookEntry: MetadataManager.WorkBookEntry
+    private val workBookEntry: MetadataManager.WorkBookEntry,
+    private val oneDriveClient: OneDriveClient
 ) : IWorkBook<T> {
 
     companion object {
@@ -58,30 +61,28 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .get()
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
+        val workSheetListResponse = withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to get worksheets: ${response.code} - ${response.message}")
+                    throw Exception("Failed to get worksheets: HTTP ${response.code}")
+                }
+
+                val responseBody = response.body.string()
+                gson.fromJson(responseBody, WorkSheetListResponse::class.java)
+            }
         }
-
-        if (!response.isSuccessful) {
-            Log.e(TAG, "Failed to get worksheets: ${response.code} - ${response.message}")
-            throw Exception("Failed to get worksheets: HTTP ${response.code}")
-        }
-
-        val responseBody = response.body.string()
-
-        val workSheetListResponse = gson.fromJson(responseBody, WorkSheetListResponse::class.java)
 
         // Always filter out "Sheet1" - Excel's default worksheet
         // This handles all scenarios including when rename fails during creation
         return workSheetListResponse.value
             .filter { it.name != "Sheet1" }
             .map { workSheetData ->
-                OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator)
+                OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
             }
     }
 
     override suspend fun createWorkSheet(sheetName: String): IWorkSheet<T> {
-        // Validate input
         if (sheetName.isBlank()) {
             Log.e(TAG, "Sheet name cannot be blank")
             throw IllegalArgumentException("Sheet name cannot be blank")
@@ -89,26 +90,20 @@ class OneDriveWorkBook<T : IWorksheetRow>(
 
         val token = authenticator.getAuthToken()
             ?: throw IllegalStateException("No authentication token available")
-
-        // Check if this is the first worksheet being created
         val existingSheets = getWorkSheets()
-
-        // If there's only one sheet named "Sheet1", rename it instead of creating a new one
         if (existingSheets.size == 1 && existingSheets[0].getName() == "Sheet1") {
             Log.d(TAG, "Found default Sheet1, renaming it to: $sheetName")
             val defaultSheet = existingSheets[0]
             renameWorksheet(defaultSheet, sheetName)
 
-            // Return the renamed sheet with updated data
             val workSheetData = WorkSheetData(
                 id = defaultSheet.getId(),
                 name = sheetName,
                 position = 0
             )
-            return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator)
+            return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
         }
 
-        // Step 1: Create worksheet via Microsoft Graph API
         val createUrl = getWorksheetOperationUrl()
 
         val createRequestBody = CreateWorkSheetRequest(sheetName)
@@ -122,7 +117,7 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .build()
 
         val createResponse = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(createRequest).execute()
+            oneDriveClient.instance.newCall(createRequest).execute()
         }
 
         if (!createResponse.isSuccessful) {
@@ -134,14 +129,13 @@ class OneDriveWorkBook<T : IWorksheetRow>(
 
         val workSheetResponse = gson.fromJson(createResponseBody, WorkSheetResponse::class.java)
 
-        // Step 2: Return OneDriveWorkSheet instance
         val workSheetData = WorkSheetData(
             id = workSheetResponse.id,
             name = workSheetResponse.name,
             position = workSheetResponse.position
         )
 
-        return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator)
+        return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
     }
 
     override suspend fun deleteWorkSheet(sheet: IWorkSheet<T>) {
@@ -156,20 +150,19 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .delete()
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
-        }
-
-        if (!response.isSuccessful) {
-            Log.e(TAG, "Failed to delete worksheet: ${response.code} - ${response.message}")
-            throw Exception("Failed to delete worksheet: HTTP ${response.code}")
+        withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to delete worksheet: ${response.code} - ${response.message}")
+                    throw Exception("Failed to delete worksheet: HTTP ${response.code}")
+                }
+            }
         }
 
         Log.d(TAG, "Worksheet ${sheet.getName()} deleted successfully")
     }
 
     override suspend fun renameWorksheet(sheet: IWorkSheet<T>, newName: String) {
-        // Validate input
         if (newName.isBlank()) {
             Log.e(TAG, "New sheet name cannot be blank")
             throw IllegalArgumentException("New sheet name cannot be blank")
@@ -191,13 +184,13 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .patch(requestBody)
             .build()
 
-        val response = withContext(Dispatchers.IO) {
-            OneDriveClient.instance.newCall(request).execute()
-        }
-
-        if (!response.isSuccessful) {
-            Log.e(TAG, "Failed to rename worksheet: ${response.code} - ${response.message}")
-            throw Exception("Failed to rename worksheet: HTTP ${response.code}")
+        withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to rename worksheet: ${response.code} - ${response.message}")
+                    throw Exception("Failed to rename worksheet: HTTP ${response.code}")
+                }
+            }
         }
 
         Log.d(TAG, "Worksheet renamed from ${sheet.getName()} to $newName successfully")

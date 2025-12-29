@@ -5,37 +5,46 @@ import android.util.Log
 import com.opencloudsheet.Provider
 import com.opencloudsheet.auth.IAuthenticator
 import com.opencloudsheet.auth.OneDriveAuthenticator
-import com.opencloudsheet.storageoperations.files.folder.create.ICreateFolder
-import com.opencloudsheet.storageoperations.files.folder.create.OneDriveCreateFolder
-import com.opencloudsheet.storageoperations.files.folder.list.IListDirectoryContents
-import com.opencloudsheet.storageoperations.files.folder.list.OneDriveListDirectory
+import com.opencloudsheet.storage.folder.create.ICreateFolder
+import com.opencloudsheet.storage.folder.create.OneDrivePersonalFolderCreator
+import com.opencloudsheet.storage.folder.list.IListDirectoryContents
+import com.opencloudsheet.storage.folder.list.OneDriveListDirectory
 import com.opencloudsheet.model.file.ICloudFile
 import com.opencloudsheet.model.workbook.IWorkBook
 import com.opencloudsheet.model.workbook.OneDriveWorkBook
-import com.opencloudsheet.storageoperations.files.workbook.create.ICreateWorkBook
-import com.opencloudsheet.storageoperations.files.workbook.create.OneDriveCreateWorkBook
+import com.opencloudsheet.storage.workbook.create.ICreateWorkBook
+import com.opencloudsheet.storage.workbook.create.OneDrivePersonalWorkbookCreator
+import com.opencloudsheet.storage.workbook.delete.IDeleteWorkBook
+import com.opencloudsheet.storage.workbook.delete.OneDrivePersonalWorkbookDeleter
 import com.opencloudsheet.config.OneDriveConfiguration
 import com.opencloudsheet.metadata.MetadataManager
 import com.opencloudsheet.metadata.OneDriveWorkBookMetadataInfo
 import com.opencloudsheet.model.worksheet.IWorksheetRow
+import com.opencloudsheet.constants.OneDriveClient
+import com.opencloudsheet.interceptor.OneDriveRequestInterceptor
 import com.opencloudsheet.utilities.OneDriveResponseHelper
+import com.opencloudsheet.utilities.OneDriveWorkbookSessionHelper
 
 /**
  * Microsoft OneDrive implementation of cloud storage factory.
  *
  * Provides Microsoft OneDrive-specific implementations:
  * - OneDriveListDirectory - List directory contents
- * - OneDriveCreateFolder - Create folders
- * - OneDriveCreateWorkBook - Create Excel workbooks
+ * - OneDrivePersonalFolderCreator - Create folders
+ * - OneDrivePersonalWorkbookCreator - Create Excel workbooks
  * - OneDriveWorkBook - Workbook operations
  *
  * Dependency Graph (DAG - Directed Acyclic Graph):
  * ```
  * Authenticator (lazy created)
  *     ↓
- * ListDirectory (lazy, depends on Authenticator)
+ * SessionHelper (lazy, depends on Authenticator)
  *     ↓
- * CreateFolder (lazy, depends on ListDirectory)
+ * RequestInterceptor (lazy, depends on SessionHelper)
+ *     ↓
+ * OneDriveClient (lazy, depends on RequestInterceptor)
+ *     ↓
+ * ListDirectory, CreateFolder, etc. (lazy, depends on Authenticator + Client)
  *     ↓
  * BaseCloudStorageFactory.initializeMetadataManager() (uses CreateFolder + CreateWorkBook)
  * ```
@@ -49,29 +58,38 @@ internal class OneDriveFactory(
         private const val TAG = "OneDriveFactory"
     }
 
-    // Lazy-initialized authenticator
     private val _authenticator: IAuthenticator by lazy {
         OneDriveAuthenticator(config)
     }
 
-    // Lazy-initialized commands (depend on authenticator)
+    private val _sessionHelper: OneDriveWorkbookSessionHelper by lazy {
+        OneDriveWorkbookSessionHelper(_authenticator)
+    }
+
+    private val _requestInterceptor: OneDriveRequestInterceptor by lazy {
+        OneDriveRequestInterceptor(_sessionHelper)
+    }
+
+    private val _oneDriveClient: OneDriveClient by lazy {
+        OneDriveClient(_requestInterceptor)
+    }
+
     private val _listDirectory: IListDirectoryContents by lazy {
-        OneDriveListDirectory(_authenticator)
+        OneDriveListDirectory(_authenticator, _oneDriveClient)
     }
 
     private val _createFolder: ICreateFolder by lazy {
-        OneDriveCreateFolder(_authenticator, getListDirectory())
+        OneDrivePersonalFolderCreator(_authenticator, getListDirectory(), _oneDriveClient)
     }
 
     private val _createWorkBook: ICreateWorkBook by lazy {
-        OneDriveCreateWorkBook(_authenticator)
+        OneDrivePersonalWorkbookCreator(_authenticator, _oneDriveClient)
     }
 
-    /**
-     * Initialize the factory with authentication and metadata manager setup.
-     *
-     * @param activity Activity for authentication UI
-     */
+    private val _deleteWorkBook: IDeleteWorkBook by lazy {
+        OneDrivePersonalWorkbookDeleter(_authenticator, _oneDriveClient)
+    }
+
     suspend fun initialize(activity: Activity) {
         if (isInitialized) {
             Log.d(TAG, "Already initialized, skipping")
@@ -80,14 +98,9 @@ internal class OneDriveFactory(
 
         try {
             Log.d(TAG, "Starting Microsoft OneDrive factory initialization")
-
-            // Step 1: Login user (authenticator will be lazily created and initialized in login())
             _authenticator.login(activity)
             Log.d(TAG, "User logged in successfully. Token: ${_authenticator.getAuthToken()}")
-
-            // Step 2: Initialize metadata manager (creates folder structure + Metadata.xlsx)
             initializeMetadataManager()
-
             Log.d(TAG, "Microsoft OneDrive factory initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize Microsoft OneDrive factory", e)
@@ -95,10 +108,7 @@ internal class OneDriveFactory(
         }
     }
 
-    // Public accessor for ListDirectory (used by other components)
     fun getListDirectory(): IListDirectoryContents = _listDirectory
-
-    // Override abstract methods from BaseCloudStorageFactory
     override fun getCreateFolder(): ICreateFolder = _createFolder
 
     override fun getCreateWorkBook(): ICreateWorkBook = _createWorkBook
@@ -106,6 +116,8 @@ internal class OneDriveFactory(
     override fun getAuthenticator(): IAuthenticator = _authenticator
 
     override fun getListDirectoryContents(): IListDirectoryContents = _listDirectory
+
+    override fun getDeleteWorkBook(): IDeleteWorkBook = _deleteWorkBook
 
     override fun <T : IWorksheetRow> createWorkBookInstance(
         clazz: Class<T>,
@@ -115,7 +127,8 @@ internal class OneDriveFactory(
             oneDriveWorkBookMetadataInfo(workBookEntry.providerMetadataInfo),
             clazz,
             _authenticator,
-            workBookEntry
+            workBookEntry,
+            _oneDriveClient
         )
     }
 
@@ -130,20 +143,35 @@ internal class OneDriveFactory(
         )
         return MetadataManager.WorkBookEntry(
             name = file.getName(),
-            className = IWorksheetRow::class.java.name,
             provider = Provider.OneDrive.name,
             description = "This is for the Metadata Information of the Users WorkBooks",
             providerMetadataInfo = OneDriveResponseHelper.toString(providerMetadataInfo)
         )
     }
 
-    override suspend fun getProviderMetadatInfo(workbookFile: ICloudFile): String {
+    override suspend fun getProviderMetadataInfo(
+        workbookFile: ICloudFile,
+        iosClassName: String?,
+        androidClassName: String
+    ): String {
         val userId: String? = _authenticator.getUserDetails()?.id()
         return OneDriveResponseHelper.toString(
             OneDriveWorkBookMetadataInfo(
-                userId!!, workbookFile.getId()
+                ownerId = userId!!,
+                fileId = workbookFile.getId(),
+                iosClassName = iosClassName,
+                androidClassName = androidClassName
             )
         )
+    }
+
+    override suspend fun deleteWorkBookFile(workbookEntry: MetadataManager.WorkBookEntry) {
+        val metadataInfo = OneDriveResponseHelper.fromJson(
+            workbookEntry.providerMetadataInfo,
+            OneDriveWorkBookMetadataInfo::class.java
+        )
+        _deleteWorkBook.deleteWorkBook(metadataInfo.ownerId, metadataInfo.fileId)
+        Log.d(TAG, "Deleted OneDrive file: ${workbookEntry.name}")
     }
 
     private fun oneDriveWorkBookMetadataInfo(providerMetadataInfo: String): OneDriveWorkBookMetadataInfo {

@@ -27,8 +27,24 @@ object OneDriveWorksheetRowHelpers {
         return System.currentTimeMillis()
     }
 
+    fun <T : IWorksheetRow> buildColumnMapping(clazz: Class<T>): Map<Int, String> {
+        val emptyJson = "{}"
+        val tempInstance = OneDriveResponseHelper.fromJson(emptyJson, clazz)
+        val userFieldNames = tempInstance.getTableColumnFieldsOrder()
+
+        val userColumnsMap = mutableMapOf<Int, String>()
+        userFieldNames.forEachIndexed { index, fieldName ->
+            val actualColumnIndex = index + METADATA_COLUMN_COUNT
+            userColumnsMap[actualColumnIndex] = fieldName
+        }
+
+        return METADATA_COLUMNS + userColumnsMap
+    }
+
     fun <T : IWorksheetRow> validateColumnIndexAnnotations(clazz: Class<T>) {
-        val userFields = clazz.declaredFields.filter { !METADATA_FIELDS.contains(it.name) }
+        val userFields = clazz.declaredFields
+            .filter { !METADATA_FIELDS.contains(it.name) }
+            .filter { !it.isSynthetic }
 
         if (userFields.isEmpty()) {
             return
@@ -82,22 +98,6 @@ object OneDriveWorksheetRowHelpers {
                 )
             }
         }
-    }
-
-    fun <T : IWorksheetRow> buildColumnMapping(clazz: Class<T>): Map<Int, String> {
-        val metadataColumns = METADATA_COLUMNS
-
-        val userFields = clazz.declaredFields.filter { !METADATA_FIELDS.contains(it.name) }
-
-        val userColumnsMap = userFields.associate { field ->
-            val userColumnIndex = field.getAnnotation(ColumnIndex::class.java)?.value
-                ?: userFields.indexOf(field)
-
-            val actualColumnIndex = userColumnIndex + METADATA_COLUMN_COUNT
-            actualColumnIndex to field.name
-        }
-
-        return metadataColumns + userColumnsMap
     }
 
     fun validateColumnMapping(

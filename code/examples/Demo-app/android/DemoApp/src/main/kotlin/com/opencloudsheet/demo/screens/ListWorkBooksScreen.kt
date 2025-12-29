@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opencloudsheet.demo.ui.components.SwipeToDeleteItem
 import com.opencloudsheet.demo.viewmodel.WorkBooksUiState
 import com.opencloudsheet.demo.viewmodel.WorkBooksViewModel
 import com.opencloudsheet.model.workbook.IWorkBook
@@ -28,6 +29,7 @@ fun ListWorkBooksScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var workbookToEdit by remember { mutableStateOf<IWorkBook<*>?>(null) }
 
     Scaffold(
         topBar = {
@@ -75,7 +77,9 @@ fun ListWorkBooksScreen(
                     } else {
                         WorkBooksList(
                             workbooks = state.workbooks,
-                            onWorkBookClick = onWorkBookSelected
+                            onWorkBookClick = onWorkBookSelected,
+                            onWorkBookEdit = { workbookToEdit = it },
+                            onWorkBookDelete = { viewModel.deleteWorkBook(it) }
                         )
                     }
                 }
@@ -99,24 +103,43 @@ fun ListWorkBooksScreen(
                 }
             )
         }
+
+        workbookToEdit?.let { workbook ->
+            EditWorkBookDialog(
+                workbook = workbook,
+                onDismiss = { workbookToEdit = null },
+                onSave = { name, description ->
+                    viewModel.updateWorkBook(workbook, name, description)
+                    workbookToEdit = null
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun WorkBooksList(
     workbooks: List<IWorkBook<*>>,
-    onWorkBookClick: (String, String) -> Unit
+    onWorkBookClick: (String, String) -> Unit,
+    onWorkBookEdit: (IWorkBook<*>) -> Unit,
+    onWorkBookDelete: (IWorkBook<*>) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(workbooks) { workbook ->
-            WorkBookCard(
-                workbook = workbook,
-                onClick = { onWorkBookClick(workbook.getId(), workbook.getName()) }
-            )
+        items(workbooks, key = { it.getId() }) { workbook ->
+            SwipeToDeleteItem(
+                onDelete = { onWorkBookDelete(workbook) },
+                onEdit = { onWorkBookEdit(workbook) },
+                showEdit = true
+            ) {
+                WorkBookCard(
+                    workbook = workbook,
+                    onClick = { onWorkBookClick(workbook.getId(), workbook.getName()) }
+                )
+            }
         }
     }
 }
@@ -261,6 +284,57 @@ fun CreateWorkBookDialog(
                 enabled = name.isNotBlank()
             ) {
                 Text("Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun EditWorkBookDialog(
+    workbook: IWorkBook<*>,
+    onDismiss: () -> Unit,
+    onSave: (name: String, description: String) -> Unit
+) {
+    var name by remember { mutableStateOf(workbook.getName()) }
+    var description by remember { mutableStateOf(workbook.getWorkBookEntry().description) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Workbook") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Workbook Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (Optional)") },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onSave(name.trim(), description.trim())
+                    }
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Save")
             }
         },
         dismissButton = {
