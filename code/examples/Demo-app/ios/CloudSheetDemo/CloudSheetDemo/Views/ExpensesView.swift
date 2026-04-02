@@ -8,13 +8,11 @@
 import SwiftUI
 import OpenCloudSheet
 
-struct ExpensesView<Sheet: IWorkSheet>: View where Sheet.T == Expense {
+struct ExpensesView: View {
     let workbookId: String
-    let sheetId: String
     let sheetName: String
-    let sheet: Sheet
 
-    @StateObject private var viewModel: ExpensesViewModel<Sheet>
+    @StateObject private var viewModel: ExpensesViewModel
     @State private var showingCreateDialog = false
     @State private var showingEditDialog = false
     @State private var editingExpense: Expense?
@@ -24,12 +22,10 @@ struct ExpensesView<Sheet: IWorkSheet>: View where Sheet.T == Expense {
 
     let currencies = ["USD", "EUR", "GBP", "INR", "JPY", "CNY"]
 
-    init(workbookId: String, sheetId: String, sheetName: String, sheet: Sheet) {
+    init(workbookId: String, sheetName: String) {
         self.workbookId = workbookId
-        self.sheetId = sheetId
         self.sheetName = sheetName
-        self.sheet = sheet
-        _viewModel = StateObject(wrappedValue: ExpensesViewModel(sheet: sheet, sheetName: sheetName))
+        _viewModel = StateObject(wrappedValue: ExpensesViewModel(workbookId: workbookId, sheetName: sheetName))
     }
 
     var body: some View {

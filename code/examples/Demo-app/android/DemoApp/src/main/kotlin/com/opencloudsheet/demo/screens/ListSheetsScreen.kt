@@ -14,11 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.opencloudsheet.demo.model.Expense
 import com.opencloudsheet.demo.ui.components.SwipeToDeleteItem
 import com.opencloudsheet.demo.viewmodel.SheetsUiState
 import com.opencloudsheet.demo.viewmodel.SheetsViewModel
-import com.opencloudsheet.model.worksheet.IWorkSheet
+import com.opencloudsheet.model.metadata.SheetMetadata
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,7 +33,6 @@ fun ListSheetsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
-    var sheetToRename by remember { mutableStateOf<IWorkSheet<Expense>?>(null) }
 
     Scaffold(
         topBar = {
@@ -83,9 +81,8 @@ fun ListSheetsScreen(
                         SheetsList(
                             sheets = state.sheets,
                             onSheetClick = { sheet ->
-                                onSheetSelected(sheet.getId(), sheet.getName())
+                                onSheetSelected(sheet.worksheetId, sheet.sheetName)
                             },
-                            onSheetRename = { sheetToRename = it },
                             onSheetDelete = { viewModel.deleteSheet(it) }
                         )
                     }
@@ -123,37 +120,25 @@ fun ListSheetsScreen(
                 }
             )
         }
-
-        sheetToRename?.let { sheet ->
-            RenameSheetDialog(
-                sheet = sheet,
-                onDismiss = { sheetToRename = null },
-                onRename = { newName ->
-                    viewModel.renameSheet(sheet, newName)
-                    sheetToRename = null
-                }
-            )
-        }
     }
 }
 
 @Composable
 fun SheetsList(
-    sheets: List<IWorkSheet<Expense>>,
-    onSheetClick: (IWorkSheet<Expense>) -> Unit,
-    onSheetRename: (IWorkSheet<Expense>) -> Unit,
-    onSheetDelete: (IWorkSheet<Expense>) -> Unit
+    sheets: List<SheetMetadata>,
+    onSheetClick: (SheetMetadata) -> Unit,
+    onSheetDelete: (SheetMetadata) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(sheets, key = { it.getId() }) { sheet ->
+        items(sheets, key = { it.worksheetId }) { sheet ->
             SwipeToDeleteItem(
                 onDelete = { onSheetDelete(sheet) },
-                onEdit = { onSheetRename(sheet) },
-                showEdit = true
+                onEdit = { },
+                showEdit = false
             ) {
                 SheetCard(
                     sheet = sheet,
@@ -166,7 +151,7 @@ fun SheetsList(
 
 @Composable
 fun SheetCard(
-    sheet: IWorkSheet<Expense>,
+    sheet: SheetMetadata,
     onClick: () -> Unit
 ) {
     Card(
@@ -181,17 +166,19 @@ fun SheetCard(
                 .padding(16.dp)
         ) {
             Text(
-                text = sheet.getName(),
+                text = sheet.sheetName,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "ID: ${sheet.getId()}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (sheet.description.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = sheet.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -223,46 +210,6 @@ fun EmptySheetsView(
             Text("Create Sheet")
         }
     }
-}
-
-@Composable
-fun RenameSheetDialog(
-    sheet: IWorkSheet<Expense>,
-    onDismiss: () -> Unit,
-    onRename: (newName: String) -> Unit
-) {
-    var name by remember { mutableStateOf(sheet.getName()) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename Sheet") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Sheet Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank()) {
-                        onRename(name.trim())
-                    }
-                },
-                enabled = name.isNotBlank()
-            ) {
-                Text("Rename")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

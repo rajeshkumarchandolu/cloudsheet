@@ -19,7 +19,6 @@ import com.opencloudsheet.storage.workbook.delete.OneDrivePersonalWorkbookDelete
 import com.opencloudsheet.config.OneDriveConfiguration
 import com.opencloudsheet.metadata.MetadataManager
 import com.opencloudsheet.metadata.OneDriveWorkBookMetadataInfo
-import com.opencloudsheet.model.worksheet.IWorksheetRow
 import com.opencloudsheet.constants.OneDriveClient
 import com.opencloudsheet.interceptor.OneDriveRequestInterceptor
 import com.opencloudsheet.utilities.OneDriveResponseHelper
@@ -119,22 +118,19 @@ internal class OneDriveFactory(
 
     override fun getDeleteWorkBook(): IDeleteWorkBook = _deleteWorkBook
 
-    override fun <T : IWorksheetRow> createWorkBookInstance(
-        clazz: Class<T>,
+    override fun createWorkBookInstance(
         workBookEntry: MetadataManager.WorkBookEntry
-    ): IWorkBook<T> {
+    ): IWorkBook {
         return OneDriveWorkBook(
             oneDriveWorkBookMetadataInfo(workBookEntry.providerMetadataInfo),
-            clazz,
             _authenticator,
             workBookEntry,
             _oneDriveClient
         )
     }
 
-    override suspend fun <T> createMetadataFileWorkbookEntry(
-        file: ICloudFile,
-        clazz: Class<T>
+    override suspend fun createMetadataFileWorkbookEntry(
+        file: ICloudFile
     ): MetadataManager.WorkBookEntry {
         val ownerId = _authenticator.getUserDetails()?.id()
         val providerMetadataInfo = OneDriveWorkBookMetadataInfo(
@@ -150,17 +146,13 @@ internal class OneDriveFactory(
     }
 
     override suspend fun getProviderMetadataInfo(
-        workbookFile: ICloudFile,
-        iosClassName: String?,
-        androidClassName: String
+        workbookFile: ICloudFile
     ): String {
         val userId: String? = _authenticator.getUserDetails()?.id()
         return OneDriveResponseHelper.toString(
             OneDriveWorkBookMetadataInfo(
                 ownerId = userId!!,
-                fileId = workbookFile.getId(),
-                iosClassName = iosClassName,
-                androidClassName = androidClassName
+                fileId = workbookFile.getId()
             )
         )
     }

@@ -19,19 +19,16 @@ protocol BaseCloudStorageFactory: Sendable {
     func getMetadataManager() throws -> MetadataManager
     func getDataFolder() throws -> ICloudFile
 
-    func createWorkBookInstance<T: IWorksheetRow>(
-        type: T.Type,
+    func createWorkBookInstance(
         workBookEntry: WorkBookEntry
-    ) -> (any IWorkBook)?
+    ) throws -> (any IWorkBook)?
 
     func createMetadataFileWorkbookEntry(
         file: ICloudFile
     ) async throws -> WorkBookEntry
 
     func getProviderMetadataInfo(
-        workbookFile: ICloudFile,
-        iosClassName: String,
-        androidClassName: String
+        workbookFile: ICloudFile
     ) async throws -> String
     func deleteWorkBook(workbookEntry: WorkBookEntry) async throws
     func deleteWorkBookFile(workbookEntry: WorkBookEntry) async throws

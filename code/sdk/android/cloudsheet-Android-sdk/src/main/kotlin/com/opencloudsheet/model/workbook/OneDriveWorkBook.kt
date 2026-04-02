@@ -3,6 +3,7 @@ package com.opencloudsheet.model.workbook
 import android.util.Log
 import com.google.gson.Gson
 import com.opencloudsheet.auth.IAuthenticator
+import com.opencloudsheet.model.metadata.SheetMetadata
 import com.opencloudsheet.model.worksheet.IWorksheetRow
 import com.opencloudsheet.model.worksheet.IWorkSheet
 import com.opencloudsheet.model.worksheet.OneDriveWorkSheet
@@ -19,37 +20,153 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
-import org.json.JSONObject
 
 /**
- * Microsoft OneDrive implementation of IWorkBook<T>.
+ * Microsoft OneDrive implementation of IWorkBook supporting multiple sheet types.
  *
  * Provides operations on an Excel workbook stored in OneDrive:
- * - List worksheets
- * - Create worksheet (with automatic schema generation via reflection)
- * - Delete worksheet
- * - Rename worksheet
+ * - Create typed sheets with automatic schema generation
+ * - List all sheets via metadata
+ * - Get specific sheet by name and type
+ * - Delete sheets
  *
  * @see <a href="https://learn.microsoft.com/en-us/graph/api/resources/workbookworksheet?view=graph-rest-1.0">Microsoft Graph: Worksheet</a>
  */
-class OneDriveWorkBook<T : IWorksheetRow>(
+class OneDriveWorkBook(
     private val metadataInfo: OneDriveWorkBookMetadataInfo,
-    private val clazz: Class<T>,
     private val authenticator: IAuthenticator,
     private val workBookEntry: MetadataManager.WorkBookEntry,
     private val oneDriveClient: OneDriveClient
-) : IWorkBook<T> {
+) : IWorkBook {
 
     companion object {
         private const val TAG = "OneDriveWorkBook"
+        private const val METADATA_SHEET_NAME = "_Metadata"
         private val gson = Gson()
     }
+
+    private var metadataSheet: OneDriveWorkSheet<SheetMetadata>? = null
 
     override fun getId(): String = metadataInfo.fileId
     override fun getName(): String = workBookEntry.name
     override fun getWorkBookEntry(): MetadataManager.WorkBookEntry = workBookEntry
 
-    override suspend fun getWorkSheets(): List<IWorkSheet<T>> {
+    override suspend fun initialize() {
+        val worksheets = getAllWorkSheetsFromExcel()
+
+        val existingMetadataSheet = worksheets.find { it.name == METADATA_SHEET_NAME }
+        if (existingMetadataSheet != null) {
+            Log.i(TAG, "Found existing _Metadata sheet")
+            metadataSheet = OneDriveWorkSheet(
+                metadataInfo,
+                existingMetadataSheet,
+                SheetMetadata::class.java,
+                authenticator,
+                oneDriveClient
+            )
+        } else {
+            Log.i(TAG, "Creating new _Metadata sheet")
+            val createdWorksheet = createWorkSheetInExcel(METADATA_SHEET_NAME)
+            metadataSheet = OneDriveWorkSheet(
+                metadataInfo,
+                createdWorksheet,
+                SheetMetadata::class.java,
+                authenticator,
+                oneDriveClient
+            )
+            // Make the metadata sheet very hidden
+            setWorkSheetVisibility(createdWorksheet.id, "VeryHidden")
+        }
+    }
+
+    // MARK: - IWorkBook Protocol Methods
+
+    override suspend fun <T : IWorksheetRow> createSheet(
+        type: Class<T>,
+        name: String,
+        description: String
+    ): IWorkSheet<T> {
+        require(name.isNotBlank()) { "Sheet name cannot be blank" }
+
+        val metadataSheet = this.metadataSheet
+            ?: throw IllegalStateException("Workbook not initialized. Call initialize() first.")
+
+        val existingSheets = metadataSheet.get()
+        if (existingSheets.any { it.sheetName == name }) {
+            throw IllegalArgumentException("Sheet with name '$name' already exists")
+        }
+
+        val workSheetData = createWorkSheetInExcel(name)
+
+        val worksheet = OneDriveWorkSheet(
+            metadataInfo,
+            workSheetData,
+            type,
+            authenticator,
+            oneDriveClient
+        )
+
+        val tempInstance = gson.fromJson("{}", type)
+        val providerMetadataInfo = """{"iosClassName":"${tempInstance.getIosClassName()}","androidClassName":"${tempInstance.getAndroidClassName()}"}"""
+
+        val sheetMetadata = SheetMetadata(
+            sheetName = name,
+            worksheetId = workSheetData.id,
+            description = description,
+            providerMetadataInfo = providerMetadataInfo
+        )
+        metadataSheet.create(sheetMetadata)
+
+        Log.i(TAG, "Created sheet '$name' with type ${type.simpleName}")
+        return worksheet
+    }
+
+    override suspend fun getSheets(): List<SheetMetadata> {
+        val metadataSheet = this.metadataSheet
+            ?: throw IllegalStateException("Workbook not initialized. Call initialize() first.")
+
+        return metadataSheet.get()
+    }
+
+    override suspend fun <T : IWorksheetRow> getSheet(name: String, type: Class<T>): IWorkSheet<T>? {
+        val metadataSheet = this.metadataSheet
+            ?: throw IllegalStateException("Workbook not initialized. Call initialize() first.")
+
+        val sheets = metadataSheet.get()
+        val sheetMetadata = sheets.find { it.sheetName == name } ?: return null
+
+        val workSheetData = WorkSheetData(
+            id = sheetMetadata.worksheetId,
+            name = sheetMetadata.sheetName,
+            position = 0
+        )
+
+        return OneDriveWorkSheet(
+            metadataInfo,
+            workSheetData,
+            type,
+            authenticator,
+            oneDriveClient
+        )
+    }
+
+    override suspend fun deleteSheet(name: String) {
+        val metadataSheet = this.metadataSheet
+            ?: throw IllegalStateException("Workbook not initialized. Call initialize() first.")
+
+        val sheets = metadataSheet.get()
+        val sheetMetadata = sheets.find { it.sheetName == name }
+            ?: throw IllegalArgumentException("Sheet with name '$name' not found")
+
+        deleteWorkSheetInExcel(sheetMetadata.worksheetId)
+        metadataSheet.delete(sheetMetadata)
+
+        Log.i(TAG, "Deleted sheet '$name'")
+    }
+
+    // MARK: - Internal Excel Operations
+
+    private suspend fun getAllWorkSheetsFromExcel(): List<WorkSheetData> {
         val token = authenticator.getAuthToken()
             ?: throw IllegalStateException("No authentication token available")
 
@@ -61,7 +178,7 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .get()
             .build()
 
-        val workSheetListResponse = withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             oneDriveClient.instance.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e(TAG, "Failed to get worksheets: ${response.code} - ${response.message}")
@@ -69,40 +186,14 @@ class OneDriveWorkBook<T : IWorksheetRow>(
                 }
 
                 val responseBody = response.body.string()
-                gson.fromJson(responseBody, WorkSheetListResponse::class.java)
+                gson.fromJson(responseBody, WorkSheetListResponse::class.java).value
             }
         }
-
-        // Always filter out "Sheet1" - Excel's default worksheet
-        // This handles all scenarios including when rename fails during creation
-        return workSheetListResponse.value
-            .filter { it.name != "Sheet1" }
-            .map { workSheetData ->
-                OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
-            }
     }
 
-    override suspend fun createWorkSheet(sheetName: String): IWorkSheet<T> {
-        if (sheetName.isBlank()) {
-            Log.e(TAG, "Sheet name cannot be blank")
-            throw IllegalArgumentException("Sheet name cannot be blank")
-        }
-
+    private suspend fun createWorkSheetInExcel(sheetName: String): WorkSheetData {
         val token = authenticator.getAuthToken()
             ?: throw IllegalStateException("No authentication token available")
-        val existingSheets = getWorkSheets()
-        if (existingSheets.size == 1 && existingSheets[0].getName() == "Sheet1") {
-            Log.d(TAG, "Found default Sheet1, renaming it to: $sheetName")
-            val defaultSheet = existingSheets[0]
-            renameWorksheet(defaultSheet, sheetName)
-
-            val workSheetData = WorkSheetData(
-                id = defaultSheet.getId(),
-                name = sheetName,
-                position = 0
-            )
-            return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
-        }
 
         val createUrl = getWorksheetOperationUrl()
 
@@ -116,33 +207,30 @@ class OneDriveWorkBook<T : IWorksheetRow>(
             .post(createRequestJson)
             .build()
 
-        val createResponse = withContext(Dispatchers.IO) {
-            oneDriveClient.instance.newCall(createRequest).execute()
+        return withContext(Dispatchers.IO) {
+            oneDriveClient.instance.newCall(createRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to create worksheet: ${response.code} - ${response.message}")
+                    throw Exception("Failed to create worksheet: HTTP ${response.code}")
+                }
+
+                val responseBody = response.body.string()
+                val workSheetResponse = gson.fromJson(responseBody, WorkSheetResponse::class.java)
+
+                WorkSheetData(
+                    id = workSheetResponse.id,
+                    name = workSheetResponse.name,
+                    position = workSheetResponse.position
+                )
+            }
         }
-
-        if (!createResponse.isSuccessful) {
-            Log.e(TAG, "Failed to create worksheet: ${createResponse.code} - ${createResponse.message}")
-            throw Exception("Failed to create worksheet: HTTP ${createResponse.code}")
-        }
-
-        val createResponseBody = createResponse.body.string()
-
-        val workSheetResponse = gson.fromJson(createResponseBody, WorkSheetResponse::class.java)
-
-        val workSheetData = WorkSheetData(
-            id = workSheetResponse.id,
-            name = workSheetResponse.name,
-            position = workSheetResponse.position
-        )
-
-        return OneDriveWorkSheet(metadataInfo, workSheetData, clazz, authenticator, oneDriveClient)
     }
 
-    override suspend fun deleteWorkSheet(sheet: IWorkSheet<T>) {
+    private suspend fun deleteWorkSheetInExcel(worksheetId: String) {
         val token = authenticator.getAuthToken()
             ?: throw IllegalStateException("No authentication token available")
 
-        val url = "${getWorksheetOperationUrl()}/${sheet.getId()}"
+        val url = "${getWorksheetOperationUrl()}/$worksheetId"
 
         val request = Request.Builder()
             .url(url)
@@ -158,24 +246,22 @@ class OneDriveWorkBook<T : IWorksheetRow>(
                 }
             }
         }
-
-        Log.d(TAG, "Worksheet ${sheet.getName()} deleted successfully")
     }
 
-    override suspend fun renameWorksheet(sheet: IWorkSheet<T>, newName: String) {
-        if (newName.isBlank()) {
-            Log.e(TAG, "New sheet name cannot be blank")
-            throw IllegalArgumentException("New sheet name cannot be blank")
-        }
+    private fun getBaseWorkbookUrl(): String {
+        return "${OneDriveConstants.BASE_MS_GRAPH_URL}/users('${metadataInfo.ownerId}')/drive/items('${metadataInfo.fileId}')/workbook"
+    }
 
+    private fun getWorksheetOperationUrl(): String {
+        return "${getBaseWorkbookUrl()}/worksheets"
+    }
+
+    private suspend fun setWorkSheetVisibility(worksheetId: String, visibility: String) {
         val token = authenticator.getAuthToken()
             ?: throw IllegalStateException("No authentication token available")
 
-        val url = "${getWorksheetOperationUrl()}/${sheet.getId()}"
-
-        val requestBody = JSONObject().apply {
-            put("name", newName)
-        }.toString().toRequestBody("application/json".toMediaType())
+        val url = "${getWorksheetOperationUrl()}/$worksheetId"
+        val requestBody = """{"visibility":"$visibility"}""".toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
             .url(url)
@@ -187,20 +273,11 @@ class OneDriveWorkBook<T : IWorksheetRow>(
         withContext(Dispatchers.IO) {
             oneDriveClient.instance.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "Failed to rename worksheet: ${response.code} - ${response.message}")
-                    throw Exception("Failed to rename worksheet: HTTP ${response.code}")
+                    Log.e(TAG, "Failed to set worksheet visibility: ${response.code} - ${response.message}")
+                    throw Exception("Failed to set worksheet visibility: HTTP ${response.code}")
                 }
+                Log.i(TAG, "Set worksheet $worksheetId visibility to $visibility")
             }
         }
-
-        Log.d(TAG, "Worksheet renamed from ${sheet.getName()} to $newName successfully")
-    }
-
-    private fun getBaseWorkbookUrl(): String {
-        return "${OneDriveConstants.BASE_MS_GRAPH_URL}/users('${metadataInfo.ownerId}')/drive/items('${metadataInfo.fileId}')/workbook"
-    }
-
-    private fun getWorksheetOperationUrl(): String {
-        return "${getBaseWorkbookUrl()}/worksheets"
     }
 }

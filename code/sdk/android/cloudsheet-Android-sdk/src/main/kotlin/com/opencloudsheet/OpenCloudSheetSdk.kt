@@ -8,9 +8,6 @@ import com.opencloudsheet.factory.BaseCloudStorageFactory
 import com.opencloudsheet.factory.OneDriveFactory
 import com.opencloudsheet.metadata.MetadataManager.WorkBookEntry
 import com.opencloudsheet.model.userdetails.IUserDetails
-import com.opencloudsheet.model.worksheet.IWorksheetRow
-import com.opencloudsheet.protocols.IPlatformTypeInfo
-import com.opencloudsheet.utilities.OneDriveResponseHelper
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -54,7 +51,7 @@ object OpenCloudSheetSdk {
     /**
      * Get list of all workbooks tracked in metadata.
      */
-    suspend fun getWorkBooks(provider: Provider): List<IWorkBook<*>> {
+    suspend fun getWorkBooks(provider: Provider): List<IWorkBook> {
         val factory = factoryMap[provider]
             ?: throw IllegalStateException("Provider $provider not initialized")
 
@@ -64,12 +61,11 @@ object OpenCloudSheetSdk {
     /**
      * Create a new workbook and track it in metadata.
      */
-    suspend fun <T: IWorksheetRow> createWorkBook(
+    suspend fun createWorkBook(
         provider: Provider,
         workbookName: String,
-        description: String,
-        clazz: Class<T>
-    ): IWorkBook<T> {
+        description: String
+    ): IWorkBook {
         val factory = factoryMap[provider]
             ?: throw IllegalStateException("Provider $provider not initialized")
 
@@ -79,21 +75,17 @@ object OpenCloudSheetSdk {
         val workbookFile = createWorkBook.createWorkbook(dataFolder, workbookName)
         Log.d(TAG, "Created workbook file: ${workbookFile.getId()}")
 
-        val emptyJson = "{}"
-        val tempInstance = OneDriveResponseHelper.fromJson(emptyJson, clazz)
+        val providerMetadataInfo = factory.getProviderMetadataInfo(workbookFile)
 
-        val providerMetadataInfo = factory.getProviderMetadataInfo(
-            workbookFile = workbookFile,
-            iosClassName = tempInstance.getIosClassName(),
-            androidClassName = tempInstance.getAndroidClassName()
-        )
         val workBookEntry = WorkBookEntry(
             name = workbookName,
             provider = provider.name,
             description = description,
             providerMetadataInfo = providerMetadataInfo
         )
-        val workbook = factory.createWorkBookInstance(clazz, workBookEntry)
+        val workbook = factory.createWorkBookInstance(workBookEntry)
+        workbook.initialize()
+
         metadataManager.addWorkBook(
             name = workbookName,
             provider = provider,

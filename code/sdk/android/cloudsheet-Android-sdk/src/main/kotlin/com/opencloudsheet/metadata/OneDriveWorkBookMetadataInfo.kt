@@ -9,7 +9,5 @@ package com.opencloudsheet.metadata
  */
 data class OneDriveWorkBookMetadataInfo(
     val ownerId: String,
-    val fileId: String,
-    val iosClassName: String? = null,
-    val androidClassName: String? = null
+    val fileId: String
 )

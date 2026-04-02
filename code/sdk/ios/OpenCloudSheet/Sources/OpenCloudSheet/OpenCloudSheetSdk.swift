@@ -50,11 +50,10 @@ public class OpenCloudSheetSdk {
         return try await factory.getMetadataManager().listWorkBooks()
     }
 
-    public static func createWorkBook<T: IWorksheetRow>(
+    public static func createWorkBook(
         provider: Provider,
         workbookName: String,
-        description: String,
-        type: T.Type
+        description: String
     ) async throws -> (any IWorkBook)? {
         guard let factory = await storage.get(provider: provider) else {
             throw NSError(domain: "OpenCloudSheetSdk", code: -1,
@@ -68,13 +67,7 @@ public class OpenCloudSheetSdk {
         let workbookFile = try await createWorkBook.createWorkbook(folder: dataFolder, name: workbookName)
         print("Created workbook file: \(workbookFile.getId())")
 
-        let iosClassName = T.getIosClassName()
-        let androidClassName = T.getAndroidClassName()
-        let providerMetadataInfo = try await factory.getProviderMetadataInfo(
-            workbookFile: workbookFile,
-            iosClassName: iosClassName,
-            androidClassName: androidClassName
-        )
+        let providerMetadataInfo = try await factory.getProviderMetadataInfo(workbookFile: workbookFile)
 
         let workBookEntry = WorkBookEntry(
             name: workbookName,
@@ -83,11 +76,14 @@ public class OpenCloudSheetSdk {
             providerMetadataInfo: providerMetadataInfo
         )
 
-        let workbook = factory.createWorkBookInstance(type: type, workBookEntry: workBookEntry)
+        guard let workbook = try factory.createWorkBookInstance(workBookEntry: workBookEntry) else {
+            throw NSError(domain: "OpenCloudSheetSdk", code: -2,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to create workbook instance"])
+        }
+        try await workbook.initialize()
 
         try await metadataManager.addWorkBook(
             name: workbookName,
-            className: iosClassName,
             provider: provider,
             description: description,
             providerMetadataInfo: providerMetadataInfo

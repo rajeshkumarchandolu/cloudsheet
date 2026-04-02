@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.opencloudsheet.OpenCloudSheetSdk
 import com.opencloudsheet.Provider
-import com.opencloudsheet.demo.model.Expense
 import com.opencloudsheet.model.workbook.IWorkBook
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,8 +41,7 @@ class WorkBooksViewModel : ViewModel() {
                 OpenCloudSheetSdk.createWorkBook(
                     provider = Provider.OneDrive,
                     workbookName = name,
-                    description = description,
-                    clazz = Expense::class.java
+                    description = description
                 )
                 // Reload workbooks to show the newly created one
                 loadWorkBooks()
@@ -53,7 +51,7 @@ class WorkBooksViewModel : ViewModel() {
         }
     }
 
-    fun updateWorkBook(workbook: IWorkBook<*>, newName: String, newDescription: String) {
+    fun updateWorkBook(workbook: IWorkBook, newName: String, newDescription: String) {
         viewModelScope.launch {
             try {
                 val entry = workbook.getWorkBookEntry()
@@ -73,7 +71,7 @@ class WorkBooksViewModel : ViewModel() {
         }
     }
 
-    fun deleteWorkBook(workbook: IWorkBook<*>) {
+    fun deleteWorkBook(workbook: IWorkBook) {
         viewModelScope.launch {
             try {
                 val currentState = _uiState.value
@@ -97,6 +95,6 @@ class WorkBooksViewModel : ViewModel() {
 sealed class WorkBooksUiState {
     object Loading : WorkBooksUiState()
     object Creating : WorkBooksUiState()
-    data class Success(val workbooks: List<IWorkBook<*>>) : WorkBooksUiState()
+    data class Success(val workbooks: List<IWorkBook>) : WorkBooksUiState()
     data class Error(val message: String) : WorkBooksUiState()
 }

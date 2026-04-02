@@ -10,6 +10,4 @@ import Foundation
 struct OneDriveWorkBookMetadataInfo: Codable {
     let ownerId: String
     let fileId: String
-    let iosClassName: String?
-    let androidClassName: String?
 }

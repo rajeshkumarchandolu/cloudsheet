@@ -2,7 +2,7 @@
 //  ExpensesViewModel.swift
 //  CloudSheetDemo
 //
-//  ViewModel for managing expenses within a worksheet
+//  ViewModel for managing expenses within a sheet
 //
 
 import Foundation
@@ -19,28 +19,57 @@ enum ExpensesUiState {
 }
 
 @MainActor
-class ExpensesViewModel<Sheet: IWorkSheet>: ObservableObject where Sheet.T == Expense {
+class ExpensesViewModel: ObservableObject {
     @Published var uiState: ExpensesUiState = .loading
 
-    private let sheet: Sheet
+    private let workbookId: String
     private let sheetName: String
+    private var workbook: (any IWorkBook)?
+    private var sheet: (any IWorkSheet<Expense>)?
 
-    init(sheet: Sheet, sheetName: String) {
-        self.sheet = sheet
+    init(workbookId: String, sheetName: String) {
+        self.workbookId = workbookId
         self.sheetName = sheetName
-        loadExpenses()
+        loadWorkbookAndSheet()
     }
 
-    func loadExpenses() {
+    private func loadWorkbookAndSheet() {
         uiState = .loading
 
         Task {
             do {
+                let workbooks = try await OpenCloudSheetSdk.getWorkBooks(.OneDrive)
+                guard let foundWorkbook = workbooks.first(where: { $0.getId() == workbookId }) else {
+                    uiState = .error(message: "Workbook not found")
+                    return
+                }
+
+                workbook = foundWorkbook
+
+                guard let foundSheet = try await foundWorkbook.getSheet(name: sheetName, type: Expense.self) else {
+                    uiState = .error(message: "Sheet not found")
+                    return
+                }
+
+                sheet = foundSheet
+                loadExpenses()
+            } catch {
+                uiState = .error(message: "Failed to load workbook: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func loadExpenses() {
+        Task {
+            do {
+                guard let sheet = sheet else {
+                    uiState = .error(message: "Sheet not initialized")
+                    return
+                }
+
                 let expenses = try await sheet.get()
-                print("Loaded \(expenses.count) expenses from sheet: \(sheetName)")
                 uiState = .success(sheetName: sheetName, expenses: expenses)
             } catch {
-                print("Failed to load expenses: \(error)")
                 uiState = .error(message: "Failed to load expenses: \(error.localizedDescription)")
             }
         }
@@ -51,12 +80,15 @@ class ExpensesViewModel<Sheet: IWorkSheet>: ObservableObject where Sheet.T == Ex
 
         Task {
             do {
+                guard let sheet = sheet else {
+                    uiState = .error(message: "Sheet not initialized")
+                    return
+                }
+
                 let expense = Expense(name: name, amount: amount, currency: currency)
                 _ = try await sheet.create(row: expense)
-                print("Created expense: \(name)")
                 loadExpenses()
             } catch {
-                print("Failed to create expense: \(error)")
                 uiState = .error(message: "Failed to create expense: \(error.localizedDescription)")
             }
         }
@@ -67,27 +99,37 @@ class ExpensesViewModel<Sheet: IWorkSheet>: ObservableObject where Sheet.T == Ex
 
         Task {
             do {
+                guard let sheet = sheet else {
+                    uiState = .error(message: "Sheet not initialized")
+                    return
+                }
+
                 _ = try await sheet.update(row: expense)
-                print("Updated expense: \(expense.name)")
                 loadExpenses()
             } catch {
-                print("Failed to update expense: \(error)")
                 uiState = .error(message: "Failed to update expense: \(error.localizedDescription)")
             }
         }
     }
 
     func deleteExpense(_ expense: Expense) {
-        uiState = .deleting
+        guard case .success(let sheetName, let expenses) = uiState else { return }
+
+        let updatedExpenses = expenses.filter { $0._rowId != expense._rowId }
+        uiState = .success(sheetName: sheetName, expenses: updatedExpenses)
 
         Task {
             do {
+                guard let sheet = sheet else {
+                    uiState = .error(message: "Sheet not initialized")
+                    loadExpenses()
+                    return
+                }
+
                 _ = try await sheet.delete(row: expense)
-                print("Deleted expense: \(expense.name)")
-                loadExpenses()
             } catch {
-                print("Failed to delete expense: \(error)")
                 uiState = .error(message: "Failed to delete expense: \(error.localizedDescription)")
+                loadExpenses()
             }
         }
     }

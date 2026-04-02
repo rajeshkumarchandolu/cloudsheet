@@ -11,14 +11,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opencloudsheet.demo.model.Expense
 import com.opencloudsheet.demo.ui.components.SwipeToDeleteItem
 import com.opencloudsheet.demo.viewmodel.ExpensesUiState
 import com.opencloudsheet.demo.viewmodel.ExpensesViewModel
-import com.opencloudsheet.model.worksheet.IWorkSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,90 +24,9 @@ fun ExpensesScreen(
     workbookId: String,
     sheetId: String,
     sheetName: String,
-    onNavigateBack: () -> Unit
-) {
-    var sheet by remember { mutableStateOf<IWorkSheet<Expense>?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(workbookId, sheetId) {
-        try {
-            isLoading = true
-            error = null
-
-            // Load workbook from SDK
-            val workbooks = com.opencloudsheet.OpenCloudSheetSdk.getWorkBooks(com.opencloudsheet.Provider.OneDrive)
-            val workbook = workbooks.find { it.getId() == workbookId }
-                ?: throw IllegalStateException("Workbook not found")
-
-            @Suppress("UNCHECKED_CAST")
-            val typedWorkbook = workbook as com.opencloudsheet.model.workbook.IWorkBook<Expense>
-
-            // Get the sheet by ID
-            val sheets = typedWorkbook.getWorkSheets()
-            sheet = sheets.find { it.getId() == sheetId }
-                ?: throw IllegalStateException("Sheet not found")
-
-            isLoading = false
-        } catch (e: Exception) {
-            error = e.message ?: "Failed to load sheet"
-            isLoading = false
-        }
-    }
-
-    when {
-        isLoading -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
-        error != null -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Text(
-                        text = "Error loading sheet",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = error!!,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = onNavigateBack) {
-                        Text("Go Back")
-                    }
-                }
-            }
-        }
-        sheet != null -> {
-            ExpensesScreenContent(
-                sheet = sheet!!,
-                sheetName = sheetName,
-                onNavigateBack = onNavigateBack
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ExpensesScreenContent(
-    sheet: IWorkSheet<Expense>,
-    sheetName: String,
     onNavigateBack: () -> Unit,
     viewModel: ExpensesViewModel = viewModel(
-        factory = ExpensesViewModelFactory(sheet, sheetName)
+        factory = ExpensesViewModelFactory(workbookId, sheetName)
     )
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -434,13 +351,13 @@ fun ExpenseDialog(
 
 // ViewModelFactory for ExpensesViewModel
 class ExpensesViewModelFactory(
-    private val sheet: IWorkSheet<Expense>,
+    private val workbookId: String,
     private val sheetName: String
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ExpensesViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return ExpensesViewModel(sheet, sheetName) as T
+            return ExpensesViewModel(workbookId, sheetName) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

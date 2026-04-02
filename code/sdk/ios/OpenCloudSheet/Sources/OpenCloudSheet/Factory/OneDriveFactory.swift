@@ -108,14 +108,10 @@ final class OneDriveFactory: BaseCloudStorageFactory, @unchecked Sendable {
         return folder
     }
 
-    func createWorkBookInstance<T: IWorksheetRow>(
-        type: T.Type,
-        workBookEntry: WorkBookEntry
-    ) -> (any IWorkBook)? {
+    func createWorkBookInstance(workBookEntry: WorkBookEntry) throws -> (any IWorkBook)? {
         let metadataInfo = oneDriveWorkBookMetadataInfo(providerMetadataInfo: workBookEntry.providerMetadataInfo)
         return OneDriveWorkBook(
             metadataInfo: metadataInfo,
-            clazz: type,
             authenticator: _authenticator,
             workBookEntry: workBookEntry,
             oneDriveClient: _oneDriveClient
@@ -126,9 +122,7 @@ final class OneDriveFactory: BaseCloudStorageFactory, @unchecked Sendable {
         let ownerId = try await _authenticator.getUserDetails()?.id() ?? "me"
         let providerMetadataInfo = OneDriveWorkBookMetadataInfo(
             ownerId: ownerId,
-            fileId: file.getId(),
-            iosClassName: String(describing: WorkBookEntry.self),
-            androidClassName: String(describing: WorkBookEntry.self)
+            fileId: file.getId()
         )
 
         let encoder = JSONEncoder()
@@ -143,17 +137,11 @@ final class OneDriveFactory: BaseCloudStorageFactory, @unchecked Sendable {
         )
     }
 
-    func getProviderMetadataInfo(
-        workbookFile: ICloudFile,
-        iosClassName: String,
-        androidClassName: String
-    ) async throws -> String {
+    func getProviderMetadataInfo(workbookFile: ICloudFile) async throws -> String {
         let userId = try await _authenticator.getUserDetails()?.id() ?? "me"
         let metadataInfo = OneDriveWorkBookMetadataInfo(
             ownerId: userId,
-            fileId: workbookFile.getId(),
-            iosClassName: iosClassName,
-            androidClassName: androidClassName
+            fileId: workbookFile.getId()
         )
 
         let encoder = JSONEncoder()
@@ -192,15 +180,18 @@ final class OneDriveFactory: BaseCloudStorageFactory, @unchecked Sendable {
         let metadataFile = try await getOrCreateWorkbook(parentDirectory: _dataFolder, name: "Metadata")
         print("Got or created Metadata workbook: \(metadataFile.getId())")
 
-        let metadataWorkbook = createWorkBookInstance(
-            type: WorkBookEntry.self,
+        guard let metadataWorkbook = try createWorkBookInstance(
             workBookEntry: try await createMetadataFileWorkbookEntry(file: metadataFile)
-        )
+        ) else {
+            throw NSError(domain: "OneDriveFactory", code: -4,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to create metadata workbook instance"])
+        }
+        try await metadataWorkbook.initialize()
 
         _metadataManager = MetadataManager(
-            workbook: metadataWorkbook!,
-            createWorkBookInstance: { [weak self] type, entry in
-                return self?.createWorkBookInstance(type: type, workBookEntry: entry)
+            workbook: metadataWorkbook,
+            createWorkBookInstance: { [weak self] entry in
+                return try self?.createWorkBookInstance(workBookEntry: entry)
             }
         )
 

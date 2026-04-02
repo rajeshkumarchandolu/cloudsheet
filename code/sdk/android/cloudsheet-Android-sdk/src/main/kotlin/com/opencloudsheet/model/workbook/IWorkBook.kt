@@ -1,15 +1,18 @@
 package com.opencloudsheet.model.workbook
 
 import com.opencloudsheet.metadata.MetadataManager
+import com.opencloudsheet.model.metadata.SheetMetadata
 import com.opencloudsheet.model.worksheet.IWorksheetRow
 import com.opencloudsheet.model.worksheet.IWorkSheet
 
-interface IWorkBook<T : IWorksheetRow> {
+interface IWorkBook {
     fun getId(): String
     fun getName(): String
     fun getWorkBookEntry(): MetadataManager.WorkBookEntry
-    suspend fun getWorkSheets(): List<IWorkSheet<T>>
-    suspend fun createWorkSheet(sheetName: String): IWorkSheet<T>
-    suspend fun deleteWorkSheet(sheet: IWorkSheet<T>)
-    suspend fun renameWorksheet(sheet: IWorkSheet<T>, newName: String)
+
+    suspend fun initialize()
+    suspend fun <T : IWorksheetRow> createSheet(type: Class<T>, name: String, description: String): IWorkSheet<T>
+    suspend fun getSheets(): List<SheetMetadata>
+    suspend fun <T : IWorksheetRow> getSheet(name: String, type: Class<T>): IWorkSheet<T>?
+    suspend fun deleteSheet(name: String)
 }

@@ -9,37 +9,36 @@ import Foundation
 
 class MetadataManager {
     private let workbook: any IWorkBook
-    private let createWorkBookInstance: (IWorksheetRow.Type, WorkBookEntry) -> (any IWorkBook)?
+    private let createWorkBookInstance: (WorkBookEntry) throws -> (any IWorkBook)?
 
-    private var workBooksSheet: OneDriveWorkSheet<WorkBookEntry>?
+    private var workBooksSheet: (any IWorkSheet<WorkBookEntry>)?
 
     private static let WORKBOOKS_SHEET_NAME = "WorkBooks"
 
     init(
         workbook: any IWorkBook,
-        createWorkBookInstance: @escaping (IWorksheetRow.Type, WorkBookEntry) -> (any IWorkBook)?
+        createWorkBookInstance: @escaping (WorkBookEntry) throws -> (any IWorkBook)?
     ) {
         self.workbook = workbook
         self.createWorkBookInstance = createWorkBookInstance
     }
 
     func initialize() async throws {
-        let existingSheets = try await workbook.getWorkSheets()
-        let existingWorkBooksSheet = existingSheets.first { $0.getName() == MetadataManager.WORKBOOKS_SHEET_NAME }
-
-        if let sheet = existingWorkBooksSheet as? OneDriveWorkSheet<WorkBookEntry> {
-            workBooksSheet = sheet
+        if let existingSheet = try await workbook.getSheet(name: MetadataManager.WORKBOOKS_SHEET_NAME, type: WorkBookEntry.self) {
+            workBooksSheet = existingSheet
             return
         }
 
         print("Creating the \(MetadataManager.WORKBOOKS_SHEET_NAME) sheet in the \(workbook.getName())")
-        let newSheet = try await workbook.createWorkSheet(sheetName: MetadataManager.WORKBOOKS_SHEET_NAME)
-        workBooksSheet = newSheet as? OneDriveWorkSheet<WorkBookEntry>
+        workBooksSheet = try await workbook.createSheet(
+            type: WorkBookEntry.self,
+            name: MetadataManager.WORKBOOKS_SHEET_NAME,
+            description: "Tracks all user workbooks"
+        )
     }
 
     func addWorkBook(
         name: String,
-        className: String,
         provider: Provider,
         description: String,
         providerMetadataInfo: String
@@ -63,38 +62,17 @@ class MetadataManager {
 
         var workbooks: [any IWorkBook] = []
         for entry in entries {
-            guard let clazz = await resolveClass(for: entry) else {
-                print("Failed to load class for workbook: \(entry.name)")
-                continue
-            }
-
-            if let workbook = createWorkBookInstance(clazz, entry) {
-                workbooks.append(workbook)
+            do {
+                if let workbook = try createWorkBookInstance(entry) {
+                    try await workbook.initialize()
+                    workbooks.append(workbook)
+                }
+            } catch {
+                print("Failed to create workbook instance for '\(entry.name)': \(error)")
             }
         }
 
         return workbooks
-    }
-
-    private func resolveClass(for entry: WorkBookEntry) async -> IWorksheetRow.Type? {
-        let metadataInfo = parseProviderMetadata(entry.providerMetadataInfo)
-
-        guard let iosClassName = metadataInfo?.iosClassName else {
-            print("ERROR: Unable to resolve class for workbook '\(entry.name)': iosClassName not found in providerMetadataInfo. Workbook will be skipped.")
-            return nil
-        }
-
-        guard let clazz = await TypeRegistry.shared.resolve(className: iosClassName) else {
-            print("ERROR: Unable to resolve class for workbook '\(entry.name)': Class '\(iosClassName)' not found in TypeRegistry. Did you forget to call OpenCloudSheetSdk.registerModels([YourModel.self])? Workbook will be skipped.")
-            return nil
-        }
-
-        return clazz
-    }
-
-    private func parseProviderMetadata(_ json: String) -> OneDriveWorkBookMetadataInfo? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(OneDriveWorkBookMetadataInfo.self, from: data)
     }
 
     func updateWorkBook(workbookEntry: WorkBookEntry) async throws {

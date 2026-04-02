@@ -45,8 +45,7 @@ class WorkBooksViewModel: ObservableObject {
                 _ = try await OpenCloudSheetSdk.createWorkBook(
                     provider: .OneDrive,
                     workbookName: name,
-                    description: description,
-                    type: Expense.self
+                    description: description
                 )
                 loadWorkBooks()
             } catch {

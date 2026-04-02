@@ -12,7 +12,7 @@ import OpenCloudSheet
 enum SheetsUiState {
     case loading
     case creating
-    case success(workbookName: String, sheets: [any IWorkSheet])
+    case success(workbookName: String, sheets: [SheetMetadata])
     case error(message: String)
 }
 
@@ -57,7 +57,7 @@ class SheetsViewModel: ObservableObject {
                     return
                 }
 
-                let sheets = try await workbook.getWorkSheets()
+                let sheets = try await workbook.getSheets()
                 uiState = .success(workbookName: workbookName, sheets: sheets)
             } catch {
                 uiState = .error(message: "Failed to load sheets: \(error.localizedDescription)")
@@ -76,7 +76,11 @@ class SheetsViewModel: ObservableObject {
                 }
 
                 let sheetName = "\(month) \(year)"
-                _ = try await workbook.createWorkSheet(sheetName: sheetName)
+                _ = try await workbook.createSheet(
+                    type: Expense.self,
+                    name: sheetName,
+                    description: "Expenses for \(sheetName)"
+                )
                 loadSheets()
             } catch {
                 uiState = .error(message: "Failed to create sheet: \(error.localizedDescription)")
@@ -84,23 +88,7 @@ class SheetsViewModel: ObservableObject {
         }
     }
 
-    func renameSheet(sheet: any IWorkSheet, newName: String) {
-        Task {
-            do {
-                guard let workbook = workbook else {
-                    uiState = .error(message: "Workbook not initialized")
-                    return
-                }
-
-                try await workbook.renameWorksheet(sheet: sheet, newName: newName)
-                loadSheets()
-            } catch {
-                uiState = .error(message: "Failed to rename sheet: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func deleteSheet(sheet: any IWorkSheet) {
+    func deleteSheet(sheet: SheetMetadata) {
         Task {
             do {
                 guard let workbook = workbook else {
@@ -109,10 +97,10 @@ class SheetsViewModel: ObservableObject {
                 }
 
                 if case .success(let workbookName, let sheets) = uiState {
-                    let updatedList = sheets.filter { $0.getId() != sheet.getId() }
+                    let updatedList = sheets.filter { $0.sheetName != sheet.sheetName }
                     uiState = .success(workbookName: workbookName, sheets: updatedList)
 
-                    try await workbook.deleteWorkSheet(sheet: sheet)
+                    try await workbook.deleteSheet(name: sheet.sheetName)
                 }
             } catch {
                 uiState = .error(message: "Failed to delete sheet: \(error.localizedDescription)")

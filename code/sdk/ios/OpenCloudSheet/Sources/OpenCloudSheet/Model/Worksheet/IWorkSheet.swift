@@ -7,7 +7,7 @@
 
 import Foundation
 
-public protocol IWorkSheet {
+public protocol IWorkSheet<T> {
     associatedtype T: IWorksheetRow
 
     func getId() -> String

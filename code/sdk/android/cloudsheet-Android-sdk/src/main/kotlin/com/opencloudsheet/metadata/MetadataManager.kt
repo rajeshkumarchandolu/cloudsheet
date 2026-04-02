@@ -5,7 +5,6 @@ import com.opencloudsheet.Provider
 import com.opencloudsheet.model.workbook.IWorkBook
 import com.opencloudsheet.model.worksheet.IWorkSheet
 import com.opencloudsheet.model.worksheet.IWorksheetRow
-import com.opencloudsheet.utilities.OneDriveResponseHelper
 
 /**
  * Manager for the Metadata.xlsx workbook that tracks all user workbooks.
@@ -20,8 +19,8 @@ import com.opencloudsheet.utilities.OneDriveResponseHelper
  * - Uses reflection for schema (same as other worksheets)
  */
 class MetadataManager(
-    private val workbook: IWorkBook<WorkBookEntry>,  // Metadata.xlsx as IWorkBook<WorkBookEntry>
-    private val createWorkBookInstance: (Class<out IWorksheetRow>, WorkBookEntry) -> IWorkBook<*>
+    private val workbook: IWorkBook,  // Metadata.xlsx as IWorkBook
+    private val createWorkBookInstance: (WorkBookEntry) -> IWorkBook
 ) {
     companion object {
         private const val WORKBOOKS_SHEET_NAME = "WorkBooks"
@@ -46,15 +45,16 @@ class MetadataManager(
     }
 
     suspend fun initialize() {
-        val existingSheets = workbook.getWorkSheets()
-        val existingWorkBooksSheet = existingSheets.find { it.getName() == WORKBOOKS_SHEET_NAME }
+        // Initialize the workbook first
+        workbook.initialize()
 
-        if (existingWorkBooksSheet != null) {
-            workBooksSheet = existingWorkBooksSheet
+        val existingSheet = workbook.getSheet(WORKBOOKS_SHEET_NAME, WorkBookEntry::class.java)
+        if (existingSheet != null) {
+            workBooksSheet = existingSheet
             return
         }
         Log.i(TAG, "creating the $WORKBOOKS_SHEET_NAME sheet in the ${workbook.getName()}")
-        workBooksSheet = workbook.createWorkSheet(WORKBOOKS_SHEET_NAME)
+        workBooksSheet = workbook.createSheet(WorkBookEntry::class.java, WORKBOOKS_SHEET_NAME, "Workbooks metadata")
     }
 
     suspend fun addWorkBook(
@@ -73,33 +73,13 @@ class MetadataManager(
         workBooksSheet!!.create(entry)
     }
 
-    suspend fun listWorkBooks(): List<IWorkBook<*>> {
+    suspend fun listWorkBooks(): List<IWorkBook> {
         val entries = workBooksSheet!!.get()
 
         return entries.map { entry ->
-            createWorkBookInstance(resolveClass(entry), entry)
-        }
-    }
-
-    private fun resolveClass(entry: WorkBookEntry): Class<out IWorksheetRow> {
-        val metadataInfo = parseProviderMetadata(entry.providerMetadataInfo)
-
-        metadataInfo?.androidClassName?.let { androidClassName ->
-            try {
-                return Class.forName(androidClassName) as Class<out IWorksheetRow>
-            } catch (_: ClassNotFoundException) {
-                Log.w(TAG, "Class not found: $androidClassName")
-                throw IllegalArgumentException("Class not found: $androidClassName")
-            }
-        }
-        throw IllegalArgumentException("Invalid provider metadata: $entry")
-    }
-
-    private fun parseProviderMetadata(json: String): OneDriveWorkBookMetadataInfo? {
-        return try {
-            OneDriveResponseHelper.fromJson(json, OneDriveWorkBookMetadataInfo::class.java)
-        } catch (_: Exception) {
-            null
+            val workbook = createWorkBookInstance(entry)
+            workbook.initialize()
+            workbook
         }
     }
 

@@ -9,7 +9,6 @@ import com.opencloudsheet.model.workbook.IWorkBook
 import com.opencloudsheet.storage.workbook.create.ICreateWorkBook
 import com.opencloudsheet.storage.workbook.delete.IDeleteWorkBook
 import com.opencloudsheet.metadata.MetadataManager
-import com.opencloudsheet.model.worksheet.IWorksheetRow
 
 /**
  * Base factory for cloud storage providers.
@@ -38,22 +37,18 @@ abstract class BaseCloudStorageFactory(
     abstract fun getCreateFolder(): ICreateFolder
     abstract fun getCreateWorkBook(): ICreateWorkBook
     abstract fun getDeleteWorkBook(): IDeleteWorkBook
-    abstract fun <T : IWorksheetRow> createWorkBookInstance(
-        clazz: Class<T>,
+    abstract fun createWorkBookInstance(
         workBookEntry: MetadataManager.WorkBookEntry
-    ): IWorkBook<T>
+    ): IWorkBook
 
     abstract fun getAuthenticator(): IAuthenticator
     abstract fun getListDirectoryContents(): IListDirectoryContents
-    abstract suspend fun <T> createMetadataFileWorkbookEntry(
-        file: ICloudFile,
-        clazz: Class<T>
+    abstract suspend fun createMetadataFileWorkbookEntry(
+        file: ICloudFile
     ): MetadataManager.WorkBookEntry
 
     abstract suspend fun getProviderMetadataInfo(
-        workbookFile: ICloudFile,
-        iosClassName: String?,
-        androidClassName: String
+        workbookFile: ICloudFile
     ): String
 
     fun getMetadataManager(): MetadataManager {
@@ -85,17 +80,12 @@ abstract class BaseCloudStorageFactory(
             Log.d(TAG, "Got or created data folder: ${_dataFolder!!.getId()}")
             val metadataFile = getOrCreateWorkbook(_dataFolder, "Metadata")
             Log.d(TAG, "Got or created Metadata workbook: ${metadataFile.getId()}")
-            @Suppress("UNCHECKED_CAST")
             val metadataWorkbook = createWorkBookInstance(
-                MetadataManager.WorkBookEntry::class.java,
-                createMetadataFileWorkbookEntry(
-                    metadataFile,
-                    MetadataManager.WorkBookEntry::class.java
-                )
+                createMetadataFileWorkbookEntry(metadataFile)
             )
             _metadataManager = MetadataManager(
                 metadataWorkbook,
-            ) { clazz, workBookEntry -> createWorkBookInstance(clazz, workBookEntry) }
+            ) { workBookEntry -> createWorkBookInstance(workBookEntry) }
             _metadataManager!!.initialize()
             isInitialized = true
             Log.d(TAG, "Metadata manager initialization completed successfully")
